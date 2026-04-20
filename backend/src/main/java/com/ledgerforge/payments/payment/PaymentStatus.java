@@ -10,6 +10,7 @@ public enum PaymentStatus {
     SETTLED,
     REJECTED,
     REVERSED,
+    CHARGEBACK,
     REFUNDED,
     CANCELLED
 }

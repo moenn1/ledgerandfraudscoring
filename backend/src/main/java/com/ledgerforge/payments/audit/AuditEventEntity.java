@@ -31,6 +31,12 @@ public class AuditEventEntity {
     @Column(name = "correlation_id", length = 128)
     private String correlationId;
 
+    @Column(name = "actor_type", length = 32)
+    private String actorType;
+
+    @Column(name = "actor_id", length = 128)
+    private String actorId;
+
     @Column(name = "details_json", length = 4000)
     private String detailsJson;
 
@@ -101,6 +107,22 @@ public class AuditEventEntity {
 
     public void setDetailsJson(String detailsJson) {
         this.detailsJson = detailsJson;
+    }
+
+    public String getActorType() {
+        return actorType;
+    }
+
+    public void setActorType(String actorType) {
+        this.actorType = actorType;
+    }
+
+    public String getActorId() {
+        return actorId;
+    }
+
+    public void setActorId(String actorId) {
+        this.actorId = actorId;
     }
 
     public Instant getCreatedAt() {

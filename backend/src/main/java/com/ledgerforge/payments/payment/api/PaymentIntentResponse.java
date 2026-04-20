@@ -1,6 +1,7 @@
 package com.ledgerforge.payments.payment.api;
 
 import com.ledgerforge.payments.payment.PaymentIntentEntity;
+import com.ledgerforge.payments.common.security.SensitiveDataMasking;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -17,6 +18,9 @@ public record PaymentIntentResponse(
         Integer riskScore,
         String riskDecision,
         String failureReason,
+        Instant settlementScheduledFor,
+        Instant settledAt,
+        UUID settlementBatchId,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -28,10 +32,13 @@ public record PaymentIntentResponse(
                 payment.getAmount(),
                 payment.getCurrency(),
                 payment.getStatus().name(),
-                payment.getIdempotencyKey(),
+                SensitiveDataMasking.maskIdempotencyKey(payment.getIdempotencyKey()),
                 payment.getRiskScore(),
                 payment.getRiskDecision() == null ? null : payment.getRiskDecision().name(),
                 payment.getFailureReason(),
+                payment.getSettlementScheduledFor(),
+                payment.getSettledAt(),
+                payment.getSettlementBatchId(),
                 payment.getCreatedAt(),
                 payment.getUpdatedAt()
         );

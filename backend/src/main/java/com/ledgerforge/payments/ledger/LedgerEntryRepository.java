@@ -12,7 +12,11 @@ public interface LedgerEntryRepository extends JpaRepository<LedgerEntryEntity, 
 
     List<LedgerEntryEntity> findByAccountIdOrderByCreatedAtDesc(UUID accountId);
 
+    List<LedgerEntryEntity> findByAccountIdAndCurrencyOrderByCreatedAtDesc(UUID accountId, String currency);
+
     List<LedgerEntryEntity> findByAccountIdOrderByCreatedAtAscIdAsc(UUID accountId);
+
+    List<LedgerEntryEntity> findByAccountIdAndCurrencyOrderByCreatedAtAscIdAsc(UUID accountId, String currency);
 
     List<LedgerEntryEntity> findByJournal_IdOrderByCreatedAtAsc(UUID journalId);
 

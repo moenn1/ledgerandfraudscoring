@@ -1,6 +1,21 @@
 spring:
   application:
     name: ledgerforge-payments-backend
+  kafka:
+    bootstrap-servers: ${LEDGERFORGE_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 1
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        isolation.level: read_committed
   datasource:
     url: ${DB_URL:jdbc:h2:mem:ledgerforge;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE}
     username: ${DB_USER:sa}
@@ -32,3 +47,46 @@ management:
 
 server:
   port: ${PORT:8080}
+
+ledgerforge:
+  outbox:
+    relay-enabled: ${LEDGERFORGE_OUTBOX_RELAY_ENABLED:true}
+    batch-size: ${LEDGERFORGE_OUTBOX_BATCH_SIZE:25}
+    poll-delay-ms: ${LEDGERFORGE_OUTBOX_POLL_DELAY_MS:5000}
+    lease-duration-ms: ${LEDGERFORGE_OUTBOX_LEASE_DURATION_MS:30000}
+  kafka:
+    enabled: ${LEDGERFORGE_KAFKA_ENABLED:false}
+    topics:
+      domain-events: ${LEDGERFORGE_KAFKA_DOMAIN_EVENTS_TOPIC:ledgerforge.domain-events}
+      domain-events-dlt: ${LEDGERFORGE_KAFKA_DOMAIN_EVENTS_DLT_TOPIC:ledgerforge.domain-events.dlt}
+    producer:
+      send-timeout-ms: ${LEDGERFORGE_KAFKA_PRODUCER_SEND_TIMEOUT_MS:5000}
+    consumer:
+      max-attempts: ${LEDGERFORGE_KAFKA_CONSUMER_MAX_ATTEMPTS:3}
+      backoff-ms: ${LEDGERFORGE_KAFKA_CONSUMER_BACKOFF_MS:1000}
+    notifications:
+      consumer-group-id: ${LEDGERFORGE_KAFKA_NOTIFICATIONS_GROUP_ID:ledgerforge-notification-consumer}
+    dead-letter:
+      consumer-group-id: ${LEDGERFORGE_KAFKA_DLT_GROUP_ID:ledgerforge-broker-dlt}
+  security:
+    oauth2:
+      issuer-uri: ${LEDGERFORGE_AUTH_ISSUER_URI:}
+      jwk-set-uri: ${LEDGERFORGE_AUTH_JWK_SET_URI:}
+      issuer: ${LEDGERFORGE_AUTH_ISSUER:https://auth.ledgerforge.local}
+      audience: ${LEDGERFORGE_AUTH_AUDIENCE:ledgerforge-operator-api}
+      hmac-secret: ${LEDGERFORGE_AUTH_HMAC_SECRET:ledgerforge-dev-operator-signing-secret-change-before-shared-envs}
+      principal-claim: ${LEDGERFORGE_AUTH_PRINCIPAL_CLAIM:sub}
+    cors:
+      allowed-origins:
+        - ${LEDGERFORGE_ALLOWED_ORIGIN_PRIMARY:http://127.0.0.1:5173}
+        - ${LEDGERFORGE_ALLOWED_ORIGIN_SECONDARY:http://localhost:5173}
+  data-protection:
+    encryption-key: ${LEDGERFORGE_DATA_PROTECTION_KEY:ledgerforge-dev-data-protection-key-change-before-shared-envs}
+  notifications:
+    connect-timeout-ms: ${LEDGERFORGE_NOTIFICATION_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${LEDGERFORGE_NOTIFICATION_READ_TIMEOUT_MS:5000}
+    base-retry-delay-seconds: ${LEDGERFORGE_NOTIFICATION_BASE_RETRY_DELAY_SECONDS:30}
+    callback-skew-seconds: ${LEDGERFORGE_NOTIFICATION_CALLBACK_SKEW_SECONDS:300}
+    max-batch-size: ${LEDGERFORGE_NOTIFICATION_MAX_BATCH_SIZE:25}
+    max-response-body-chars: ${LEDGERFORGE_NOTIFICATION_MAX_RESPONSE_BODY_CHARS:2000}
+    default-max-attempts: ${LEDGERFORGE_NOTIFICATION_DEFAULT_MAX_ATTEMPTS:3}

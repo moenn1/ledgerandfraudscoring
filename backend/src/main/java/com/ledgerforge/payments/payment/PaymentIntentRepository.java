@@ -6,6 +6,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,6 +18,13 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntentEnti
     List<PaymentIntentEntity> findAllByOrderByCreatedAtAsc();
 
     List<PaymentIntentEntity> findAllByOrderByCreatedAtDesc();
+
+    List<PaymentIntentEntity> findByStatusAndSettlementScheduledForLessThanEqualOrderBySettlementScheduledForAscCreatedAtAsc(
+            PaymentStatus status,
+            Instant settlementScheduledFor
+    );
+
+    List<PaymentIntentEntity> findByStatusInOrderByCreatedAtAsc(Collection<PaymentStatus> statuses);
 
     long countByPayerAccountIdAndCreatedAtAfter(UUID payerAccountId, Instant after);
 

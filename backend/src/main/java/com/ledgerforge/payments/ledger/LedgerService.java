@@ -1,9 +1,12 @@
 package com.ledgerforge.payments.ledger;
 
 import com.ledgerforge.payments.account.AccountEntity;
+import com.ledgerforge.payments.account.AccountCurrencyEntity;
+import com.ledgerforge.payments.account.AccountCurrencyRepository;
 import com.ledgerforge.payments.account.AccountRepository;
 import com.ledgerforge.payments.account.AccountStatus;
 import com.ledgerforge.payments.common.api.ApiException;
+import com.ledgerforge.payments.outbox.OutboxService;
 import com.ledgerforge.payments.payment.PaymentIntentEntity;
 import com.ledgerforge.payments.payment.PaymentIntentRepository;
 import com.ledgerforge.payments.payment.PaymentStatus;
@@ -30,26 +33,42 @@ public class LedgerService {
     private final JournalTransactionRepository journalTransactionRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
     private final AccountRepository accountRepository;
+    private final AccountCurrencyRepository accountCurrencyRepository;
     private final PaymentIntentRepository paymentIntentRepository;
+    private final OutboxService outboxService;
 
     public LedgerService(
             JournalTransactionRepository journalTransactionRepository,
             LedgerEntryRepository ledgerEntryRepository,
             AccountRepository accountRepository,
-            PaymentIntentRepository paymentIntentRepository
+            AccountCurrencyRepository accountCurrencyRepository,
+            PaymentIntentRepository paymentIntentRepository,
+            OutboxService outboxService
     ) {
         this.journalTransactionRepository = journalTransactionRepository;
         this.ledgerEntryRepository = ledgerEntryRepository;
         this.accountRepository = accountRepository;
+        this.accountCurrencyRepository = accountCurrencyRepository;
         this.paymentIntentRepository = paymentIntentRepository;
+        this.outboxService = outboxService;
+    }
+
+    @Transactional(readOnly = true)
+    public List<LedgerEntryEntity> listByAccount(UUID accountId, String currency) {
+        AccountEntity account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Account not found: " + accountId));
+        if (currency == null || currency.isBlank()) {
+            return ledgerEntryRepository.findByAccountIdOrderByCreatedAtDesc(accountId);
+        }
+
+        String normalizedCurrency = normalizeCurrency(currency);
+        ensureAccountSupportsCurrency(account, normalizedCurrency);
+        return ledgerEntryRepository.findByAccountIdAndCurrencyOrderByCreatedAtDesc(accountId, normalizedCurrency);
     }
 
     @Transactional(readOnly = true)
     public List<LedgerEntryEntity> listByAccount(UUID accountId) {
-        if (!accountRepository.existsById(accountId)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "Account not found: " + accountId);
-        }
-        return ledgerEntryRepository.findByAccountIdOrderByCreatedAtDesc(accountId);
+        return listByAccount(accountId, null);
     }
 
     @Transactional(readOnly = true)
@@ -65,10 +84,11 @@ public class LedgerService {
     }
 
     @Transactional(readOnly = true)
-    public LedgerReplayResponse replayAccount(UUID accountId) {
+    public LedgerReplayResponse replayAccount(UUID accountId, String currency) {
         AccountEntity account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Account not found: " + accountId));
-        List<LedgerEntryEntity> entries = ledgerEntryRepository.findByAccountIdOrderByCreatedAtAscIdAsc(accountId);
+        String replayCurrency = resolveReplayCurrency(account, currency);
+        List<LedgerEntryEntity> entries = ledgerEntryRepository.findByAccountIdAndCurrencyOrderByCreatedAtAscIdAsc(accountId, replayCurrency);
 
         BigDecimal runningBalance = BigDecimal.ZERO;
         List<LedgerReplayResponse.ReplayEntry> replayEntries = new ArrayList<>();
@@ -90,11 +110,16 @@ public class LedgerService {
 
         return new LedgerReplayResponse(
                 account.getId(),
-                account.getCurrency(),
+                replayCurrency,
                 replayEntries.size(),
                 runningBalance,
                 replayEntries
         );
+    }
+
+    @Transactional(readOnly = true)
+    public LedgerReplayResponse replayAccount(UUID accountId) {
+        return replayAccount(accountId, null);
     }
 
     @Transactional(readOnly = true)
@@ -161,6 +186,14 @@ public class LedgerService {
 
     @Transactional
     public JournalTransactionEntity postJournal(JournalType type, String referenceId, List<LedgerLeg> legs) {
+        return postJournal(type, referenceId, legs, null);
+    }
+
+    @Transactional
+    public JournalTransactionEntity postJournal(JournalType type,
+                                                String referenceId,
+                                                List<LedgerLeg> legs,
+                                                String correlationId) {
         List<CreateLedgerLegRequest> requests = new ArrayList<>();
         for (LedgerLeg leg : legs) {
             requests.add(new CreateLedgerLegRequest(
@@ -170,12 +203,17 @@ public class LedgerService {
                     leg.currency()
             ));
         }
-        JournalResponse posted = createJournal(new CreateJournalRequest(type, referenceId, requests));
+        JournalResponse posted = createJournal(new CreateJournalRequest(type, referenceId, requests), correlationId);
         return getJournalOrFail(posted.id());
     }
 
     @Transactional
     public JournalResponse createJournal(CreateJournalRequest request) {
+        return createJournal(request, null);
+    }
+
+    @Transactional
+    public JournalResponse createJournal(CreateJournalRequest request, String correlationId) {
         List<LedgerLeg> requestedLegs = normalizeAndValidate(request.entries());
         String referenceId = normalizeReference(request.referenceId());
 
@@ -190,7 +228,7 @@ public class LedgerService {
         }
 
         validateLedgerInvariants(requestedLegs);
-        validateAccounts(requestedLegs);
+        validateAccounts(request.type(), requestedLegs);
 
         JournalTransactionEntity journal = new JournalTransactionEntity();
         journal.setType(request.type());
@@ -203,6 +241,7 @@ public class LedgerService {
                     .map(leg -> toLedgerEntry(savedJournal, leg))
                     .toList();
             List<LedgerEntryEntity> savedEntries = ledgerEntryRepository.saveAll(entries);
+            publishJournalCommitted(savedJournal, savedEntries, correlationId);
             return JournalResponse.from(savedJournal, savedEntries);
         } catch (DataIntegrityViolationException ex) {
             if (referenceId == null) {
@@ -214,6 +253,44 @@ public class LedgerService {
             assertIdempotentMatch(existing, requestedLegs);
             return getJournal(existing.getId());
         }
+    }
+
+    private void publishJournalCommitted(JournalTransactionEntity journal,
+                                         List<LedgerEntryEntity> entries,
+                                         String correlationId) {
+        BigDecimal totalDebit = entries.stream()
+                .filter(entry -> entry.getDirection() == LedgerDirection.DEBIT)
+                .map(LedgerEntryEntity::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalCredit = entries.stream()
+                .filter(entry -> entry.getDirection() == LedgerDirection.CREDIT)
+                .map(LedgerEntryEntity::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        outboxService.enqueue(
+                "ledger.journal.committed",
+                "journal",
+                journal.getId(),
+                journal.getId().toString(),
+                correlationId,
+                null,
+                Map.of(
+                        "journalId", journal.getId(),
+                        "journalType", journal.getType().name(),
+                        "status", journal.getStatus().name(),
+                        "referenceId", journal.getReferenceId() == null ? "" : journal.getReferenceId(),
+                        "entryCount", entries.size(),
+                        "totalDebit", totalDebit,
+                        "totalCredit", totalCredit,
+                        "entries", entries.stream().map(entry -> Map.of(
+                                "ledgerEntryId", entry.getId(),
+                                "accountId", entry.getAccountId(),
+                                "direction", entry.getDirection().name(),
+                                "amount", entry.getAmount(),
+                                "currency", entry.getCurrency()
+                        )).toList()
+                )
+        );
     }
 
     private JournalTransactionEntity getJournalOrFail(UUID journalId) {
@@ -279,9 +356,14 @@ public class LedgerService {
             case RESERVED -> List.of(Set.of(JournalType.RESERVE));
             case CAPTURED, SETTLED -> List.of(Set.of(JournalType.RESERVE, JournalType.CAPTURE));
             case REFUNDED -> List.of(Set.of(JournalType.RESERVE, JournalType.CAPTURE, JournalType.REFUND));
-            case CANCELLED, REVERSED -> List.of(
+            case CHARGEBACK -> List.of(Set.of(JournalType.RESERVE, JournalType.CAPTURE, JournalType.CHARGEBACK));
+            case CANCELLED -> List.of(
                     Set.<JournalType>of(),
                     Set.of(JournalType.RESERVE, JournalType.REVERSAL)
+            );
+            case REVERSED -> List.of(
+                    Set.of(JournalType.RESERVE, JournalType.REVERSAL),
+                    Set.of(JournalType.RESERVE, JournalType.CAPTURE, JournalType.REVERSAL)
             );
         };
     }
@@ -369,10 +451,17 @@ public class LedgerService {
         }
     }
 
-    private void validateAccounts(List<LedgerLeg> legs) {
+    private void validateAccounts(JournalType journalType, List<LedgerLeg> legs) {
         Set<UUID> accountIds = legs.stream().map(LedgerLeg::accountId).collect(Collectors.toSet());
         Map<UUID, AccountEntity> accountsById = accountRepository.findAllById(accountIds).stream()
                 .collect(Collectors.toMap(AccountEntity::getId, Function.identity()));
+        Map<UUID, Set<String>> supportedCurrenciesByAccountId = accountCurrencyRepository
+                .findByIdAccountIdInOrderByIdAccountIdAscIdCurrencyAsc(accountIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        AccountCurrencyEntity::getAccountId,
+                        Collectors.mapping(AccountCurrencyEntity::getCurrency, Collectors.toSet())
+                ));
 
         if (accountsById.size() != accountIds.size()) {
             Set<UUID> missing = accountIds.stream().filter(id -> !accountsById.containsKey(id)).collect(Collectors.toSet());
@@ -381,13 +470,17 @@ public class LedgerService {
 
         for (LedgerLeg leg : legs) {
             AccountEntity account = accountsById.get(leg.accountId());
-            if (account.getStatus() != AccountStatus.ACTIVE) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Inactive account cannot be posted to: " + account.getId());
-            }
-            if (!account.getCurrency().equals(leg.currency())) {
+            if (!canPostToAccount(journalType, account.getStatus())) {
                 throw new ApiException(
                         HttpStatus.BAD_REQUEST,
-                        "Currency mismatch for account " + account.getId() + ": expected " + account.getCurrency() + ", got " + leg.currency()
+                        "Account " + account.getId() + " in status " + account.getStatus().name()
+                                + " cannot be posted to by " + journalType.name() + " journals"
+                );
+            }
+            if (!accountSupportsCurrency(account, supportedCurrenciesByAccountId.get(account.getId()), leg.currency())) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "Account " + account.getId() + " does not support currency " + leg.currency()
                 );
             }
         }
@@ -437,6 +530,68 @@ public class LedgerService {
         }
         String trimmed = referenceId.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String resolveReplayCurrency(AccountEntity account, String requestedCurrency) {
+        Set<String> supportedCurrencies = supportedCurrencies(account);
+        if (requestedCurrency == null || requestedCurrency.isBlank()) {
+            if (supportedCurrencies.size() == 1) {
+                return supportedCurrencies.iterator().next();
+            }
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "Currency is required when replaying balances for a multi-currency account"
+            );
+        }
+
+        String normalizedCurrency = normalizeCurrency(requestedCurrency);
+        ensureAccountSupportsCurrency(account, normalizedCurrency);
+        return normalizedCurrency;
+    }
+
+    private void ensureAccountSupportsCurrency(AccountEntity account, String currency) {
+        if (!accountSupportsCurrency(account, supportedCurrencies(account), currency)) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "Account " + account.getId() + " does not support currency " + currency
+            );
+        }
+    }
+
+    private Set<String> supportedCurrencies(AccountEntity account) {
+        Set<String> currencies = accountCurrencyRepository.findByIdAccountIdOrderByIdCurrencyAsc(account.getId()).stream()
+                .map(AccountCurrencyEntity::getCurrency)
+                .collect(Collectors.toSet());
+        if (!currencies.isEmpty()) {
+            return currencies;
+        }
+        return Set.of(account.getCurrency());
+    }
+
+    private boolean accountSupportsCurrency(AccountEntity account, Set<String> supportedCurrencies, String currency) {
+        if (supportedCurrencies == null || supportedCurrencies.isEmpty()) {
+            return account.getCurrency().equals(currency);
+        }
+        return supportedCurrencies.contains(currency);
+    }
+
+    private boolean canPostToAccount(JournalType journalType, AccountStatus accountStatus) {
+        if (accountStatus == AccountStatus.ACTIVE) {
+            return true;
+        }
+        if (accountStatus == AccountStatus.FROZEN) {
+            return journalType == JournalType.REVERSAL
+                    || journalType == JournalType.REFUND
+                    || journalType == JournalType.CHARGEBACK;
+        }
+        return false;
+    }
+
+    private String normalizeCurrency(String currency) {
+        if (currency == null || currency.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Currency is required");
+        }
+        return currency.trim().toUpperCase();
     }
 
     private record LegKey(UUID accountId, LedgerDirection direction, BigDecimal amount, String currency) {

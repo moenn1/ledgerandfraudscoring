@@ -10,6 +10,7 @@ import com.ledgerforge.payments.ledger.JournalType;
 import com.ledgerforge.payments.ledger.LedgerDirection;
 import com.ledgerforge.payments.ledger.LedgerLeg;
 import com.ledgerforge.payments.ledger.LedgerService;
+import com.ledgerforge.payments.outbox.OutboxService;
 import com.ledgerforge.payments.payment.PaymentIntentEntity;
 import com.ledgerforge.payments.payment.PaymentIntentRepository;
 import com.ledgerforge.payments.payment.PaymentStatus;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -33,17 +35,20 @@ public class ManualReviewService {
     private final AccountService accountService;
     private final LedgerService ledgerService;
     private final AuditService auditService;
+    private final OutboxService outboxService;
 
     public ManualReviewService(ReviewCaseRepository reviewCaseRepository,
                                PaymentIntentRepository paymentIntentRepository,
                                AccountService accountService,
                                LedgerService ledgerService,
-                               AuditService auditService) {
+                               AuditService auditService,
+                               OutboxService outboxService) {
         this.reviewCaseRepository = reviewCaseRepository;
         this.paymentIntentRepository = paymentIntentRepository;
         this.accountService = accountService;
         this.ledgerService = ledgerService;
         this.auditService = auditService;
+        this.outboxService = outboxService;
     }
 
     @Transactional(readOnly = true)
@@ -79,11 +84,26 @@ public class ManualReviewService {
                         "assignedTo", saved.getAssignedTo()
                 )
         );
+        outboxService.enqueue(
+                "fraud.review_case.opened",
+                "review_case",
+                saved.getId(),
+                payment.getId().toString(),
+                correlationId,
+                null,
+                Map.of(
+                        "reviewCaseId", saved.getId(),
+                        "paymentId", payment.getId(),
+                        "status", saved.getStatus().name(),
+                        "reason", saved.getReason(),
+                        "assignedTo", saved.getAssignedTo()
+                )
+        );
         return saved;
     }
 
     @Transactional
-    public ReviewCaseEntity decide(UUID reviewCaseId, ReviewDecisionRequest request, String correlationId) {
+    public ReviewCaseEntity decide(UUID reviewCaseId, ReviewDecisionRequest request, String correlationId, String actorId) {
         ReviewCaseEntity reviewCase = reviewCaseRepository.findById(reviewCaseId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Review case not found: " + reviewCaseId));
         if (reviewCase.getStatus() != ReviewCaseStatus.OPEN) {
@@ -103,6 +123,8 @@ public class ManualReviewService {
             payment.setStatus(PaymentStatus.APPROVED);
             payment.setRiskDecision(RiskDecision.APPROVE);
             payment.setFailureReason(null);
+            accountService.requirePaymentParticipationAllowed(accountService.getOrFail(payment.getPayerAccountId()), "payer");
+            accountService.requirePaymentParticipationAllowed(accountService.getOrFail(payment.getPayeeAccountId()), "payee");
             AccountEntity holdingAccount = accountService.getSystemHoldingAccount(payment.getCurrency());
             reserveJournal = ledgerService.postJournal(
                     JournalType.RESERVE,
@@ -110,7 +132,8 @@ public class ManualReviewService {
                     List.of(
                             new LedgerLeg(payment.getPayerAccountId(), LedgerDirection.DEBIT, payment.getAmount(), payment.getCurrency()),
                             new LedgerLeg(holdingAccount.getId(), LedgerDirection.CREDIT, payment.getAmount(), payment.getCurrency())
-                    )
+                    ),
+                    correlationId
             );
             payment.setStatus(PaymentStatus.RESERVED);
         } else {
@@ -125,21 +148,73 @@ public class ManualReviewService {
         Map<String, Object> details = new HashMap<>();
         details.put("reviewCaseId", reviewCase.getId());
         details.put("decision", request.decision().name());
-        details.put("actor", request.actor());
+        details.put("actor", actorId);
         details.put("note", request.note() == null ? "" : request.note());
         if (reserveJournal != null) {
             details.put("journalId", reserveJournal.getId());
         }
-        auditService.append(
+        auditService.appendWithActor(
                 "fraud.review_case.decided",
                 payment.getId(),
                 payment.getPayerAccountId(),
                 reserveJournal == null ? null : reserveJournal.getId(),
                 correlationId,
+                "operator",
+                actorId,
                 details
         );
+        outboxService.enqueue(
+                "fraud.review_case.decided",
+                "review_case",
+                reviewCase.getId(),
+                payment.getId().toString(),
+                correlationId,
+                null,
+                Map.of(
+                        "reviewCaseId", reviewCase.getId(),
+                        "paymentId", payment.getId(),
+                        "decision", request.decision().name(),
+                        "actor", actorId,
+                        "note", request.note() == null ? "" : request.note(),
+                        "status", reviewCase.getStatus().name(),
+                        "journalId", reserveJournal == null ? "" : reserveJournal.getId()
+                )
+        );
+        if (payment.getStatus() == PaymentStatus.RESERVED) {
+            publishPaymentReserved(payment, correlationId, reserveJournal);
+        }
 
         return reviewCase;
+    }
+
+    private void publishPaymentReserved(PaymentIntentEntity payment,
+                                        String correlationId,
+                                        JournalTransactionEntity reserveJournal) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("paymentId", payment.getId());
+        payload.put("status", payment.getStatus().name());
+        payload.put("payerAccountId", payment.getPayerAccountId());
+        payload.put("payeeAccountId", payment.getPayeeAccountId());
+        payload.put("amount", payment.getAmount());
+        payload.put("currency", payment.getCurrency());
+        if (payment.getRiskDecision() != null) {
+            payload.put("riskDecision", payment.getRiskDecision().name());
+        }
+        if (payment.getRiskScore() != null) {
+            payload.put("riskScore", payment.getRiskScore());
+        }
+        if (reserveJournal != null) {
+            payload.put("journalId", reserveJournal.getId());
+        }
+        outboxService.enqueue(
+                "payment.reserved",
+                "payment",
+                payment.getId(),
+                payment.getId().toString(),
+                correlationId,
+                null,
+                payload
+        );
     }
 
     private String reasonSummary(List<FraudReason> reasons) {

@@ -1,5 +1,6 @@
 package com.ledgerforge.payments.payment.api;
 
+import com.ledgerforge.payments.common.security.SensitiveDataMasking;
 import com.ledgerforge.payments.payment.PaymentIntentEntity;
 
 import java.math.BigDecimal;
@@ -28,7 +29,7 @@ public record PaymentResponse(
                 payment.getAmount(),
                 payment.getCurrency(),
                 payment.getStatus().name(),
-                payment.getIdempotencyKey(),
+                SensitiveDataMasking.maskIdempotencyKey(payment.getIdempotencyKey()),
                 payment.getRiskScore(),
                 payment.getRiskDecision() == null ? null : payment.getRiskDecision().name(),
                 payment.getFailureReason(),

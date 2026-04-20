@@ -49,6 +49,15 @@ public class PaymentIntentEntity {
     @Column(name = "failure_reason", length = 512)
     private String failureReason;
 
+    @Column(name = "settlement_scheduled_for")
+    private Instant settlementScheduledFor;
+
+    @Column(name = "settled_at")
+    private Instant settledAt;
+
+    @Column(name = "settlement_batch_id")
+    private UUID settlementBatchId;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -152,6 +161,30 @@ public class PaymentIntentEntity {
 
     public void setFailureReason(String failureReason) {
         this.failureReason = failureReason;
+    }
+
+    public Instant getSettlementScheduledFor() {
+        return settlementScheduledFor;
+    }
+
+    public void setSettlementScheduledFor(Instant settlementScheduledFor) {
+        this.settlementScheduledFor = settlementScheduledFor;
+    }
+
+    public Instant getSettledAt() {
+        return settledAt;
+    }
+
+    public void setSettledAt(Instant settledAt) {
+        this.settledAt = settledAt;
+    }
+
+    public UUID getSettlementBatchId() {
+        return settlementBatchId;
+    }
+
+    public void setSettlementBatchId(UUID settlementBatchId) {
+        this.settlementBatchId = settlementBatchId;
     }
 
     public Instant getCreatedAt() {

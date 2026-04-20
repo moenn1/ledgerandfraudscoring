@@ -15,15 +15,21 @@ import com.ledgerforge.payments.ledger.JournalResponse;
 import com.ledgerforge.payments.ledger.JournalType;
 import com.ledgerforge.payments.ledger.LedgerEntryEntity;
 import com.ledgerforge.payments.ledger.LedgerService;
+import com.ledgerforge.payments.notification.NotificationService;
+import com.ledgerforge.payments.outbox.OutboxService;
 import com.ledgerforge.payments.payment.api.ConfirmPaymentRequest;
 import com.ledgerforge.payments.payment.api.CreatePaymentRequest;
-import com.ledgerforge.payments.payment.api.RefundPaymentRequest;
+import com.ledgerforge.payments.payment.api.PaymentAdjustmentRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -34,27 +40,36 @@ public class PaymentService {
     private static final BigDecimal FEE_RATE = new BigDecimal("0.03");
 
     private final PaymentIntentRepository paymentRepository;
+    private final PaymentAdjustmentRepository paymentAdjustmentRepository;
     private final AccountService accountService;
     private final LedgerService ledgerService;
     private final IdempotencyService idempotencyService;
     private final AuditService auditService;
     private final FraudScoringService fraudScoringService;
     private final ManualReviewService manualReviewService;
+    private final NotificationService notificationService;
+    private final OutboxService outboxService;
 
     public PaymentService(PaymentIntentRepository paymentRepository,
+                          PaymentAdjustmentRepository paymentAdjustmentRepository,
                           AccountService accountService,
                           LedgerService ledgerService,
                           IdempotencyService idempotencyService,
                           AuditService auditService,
                           FraudScoringService fraudScoringService,
-                          ManualReviewService manualReviewService) {
+                          ManualReviewService manualReviewService,
+                          NotificationService notificationService,
+                          OutboxService outboxService) {
         this.paymentRepository = paymentRepository;
+        this.paymentAdjustmentRepository = paymentAdjustmentRepository;
         this.accountService = accountService;
         this.ledgerService = ledgerService;
         this.idempotencyService = idempotencyService;
         this.auditService = auditService;
         this.fraudScoringService = fraudScoringService;
         this.manualReviewService = manualReviewService;
+        this.notificationService = notificationService;
+        this.outboxService = outboxService;
     }
 
     @Transactional
@@ -95,6 +110,7 @@ public class PaymentService {
                         "currency", saved.getCurrency()
                 )
         );
+        publishPaymentEvent("payment.created", saved, correlationId, idempotencyKey, Map.of());
         return saved;
     }
 
@@ -111,6 +127,12 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public List<LedgerEntryEntity> paymentLedger(UUID paymentId) {
         return ledgerService.listByReferencePrefix(referencePrefix(paymentId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<PaymentAdjustmentEntity> paymentAdjustments(UUID paymentId) {
+        getOrFail(paymentId);
+        return paymentAdjustmentRepository.findByPaymentIdOrderByCreatedAtAsc(paymentId);
     }
 
     @Transactional(readOnly = true)
@@ -145,6 +167,9 @@ public class PaymentService {
         ensureStatus(payment, PaymentStatus.CREATED, "confirm");
 
         AccountEntity payer = accountService.getOrFail(payment.getPayerAccountId());
+        AccountEntity payee = accountService.getOrFail(payment.getPayeeAccountId());
+        accountService.requirePaymentParticipationAllowed(payer, "payer");
+        accountService.requirePaymentParticipationAllowed(payee, "payee");
 
         payment.setStatus(PaymentStatus.VALIDATED);
         payment.setStatus(PaymentStatus.RISK_SCORING);
@@ -170,6 +195,13 @@ public class PaymentService {
                             "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
                     )
             );
+            publishPaymentEvent(
+                    "payment.rejected",
+                    saved,
+                    correlationId,
+                    idempotencyKey,
+                    Map.of("reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList())
+            );
             return saved;
         }
 
@@ -191,13 +223,20 @@ public class PaymentService {
                             "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
                     )
             );
+            publishPaymentEvent(
+                    "payment.review_required",
+                    saved,
+                    correlationId,
+                    idempotencyKey,
+                    Map.of("reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList())
+            );
             return saved;
         }
 
         payment.setStatus(PaymentStatus.APPROVED);
         payment.setFailureReason(null);
 
-        JournalResponse reserveJournal = reserveFunds(payment, referenceId(payment.getId(), "reserve"));
+        JournalResponse reserveJournal = reserveFunds(payment, referenceId(payment.getId(), "reserve"), correlationId);
 
         payment.setStatus(PaymentStatus.RESERVED);
         PaymentIntentEntity saved = paymentRepository.save(payment);
@@ -213,6 +252,16 @@ public class PaymentService {
                         "status", saved.getStatus().name(),
                         "riskScore", saved.getRiskScore(),
                         "riskDecision", saved.getRiskDecision().name(),
+                        "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
+                )
+        );
+        publishPaymentEvent(
+                "payment.reserved",
+                saved,
+                correlationId,
+                idempotencyKey,
+                Map.of(
+                        "journalId", reserveJournal.id(),
                         "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
                 )
         );
@@ -233,6 +282,8 @@ public class PaymentService {
             return payment;
         }
         ensureStatus(payment, PaymentStatus.RESERVED, "capture");
+        accountService.requirePaymentParticipationAllowed(accountService.getOrFail(payment.getPayerAccountId()), "payer");
+        accountService.requirePaymentParticipationAllowed(accountService.getOrFail(payment.getPayeeAccountId()), "payee");
 
         AccountEntity holdingAccount = accountService.getSystemHoldingAccount(payment.getCurrency());
         AccountEntity revenueAccount = accountService.getSystemRevenueAccount(payment.getCurrency());
@@ -248,8 +299,12 @@ public class PaymentService {
                         new CreateLedgerLegRequest(payment.getPayeeAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, net, payment.getCurrency()),
                         new CreateLedgerLegRequest(revenueAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, fee, payment.getCurrency())
                 )
-        ));
+        ), correlationId);
 
+        Instant settlementScheduledFor = nextSettlementCutoff(Instant.now());
+        payment.setSettlementScheduledFor(settlementScheduledFor);
+        payment.setSettledAt(null);
+        payment.setSettlementBatchId(null);
         payment.setStatus(PaymentStatus.CAPTURED);
         PaymentIntentEntity saved = paymentRepository.save(payment);
         recordMutation(scope, idempotencyKey, fingerprint, saved);
@@ -260,14 +315,29 @@ public class PaymentService {
                 saved.getPayerAccountId(),
                 captureJournal.id(),
                 correlationId,
-                Map.of("status", saved.getStatus().name(), "fee", fee)
+                Map.of(
+                        "status", saved.getStatus().name(),
+                        "fee", fee,
+                        "settlementScheduledFor", settlementScheduledFor
+                )
+        );
+        publishPaymentEvent(
+                "payment.captured",
+                saved,
+                correlationId,
+                idempotencyKey,
+                Map.of(
+                        "journalId", captureJournal.id(),
+                        "fee", fee,
+                        "settlementScheduledFor", settlementScheduledFor
+                )
         );
         return saved;
     }
 
     @Transactional
     public PaymentIntentEntity refund(UUID paymentId,
-                                      RefundPaymentRequest request,
+                                      PaymentAdjustmentRequest request,
                                       String idempotencyKey,
                                       String correlationId) {
         BigDecimal requestedAmount = resolveOptionalAmount(request.amount(), request.amountCents());
@@ -286,26 +356,20 @@ public class PaymentService {
             throw new ApiException(HttpStatus.CONFLICT, "Refund only allowed after capture/settlement");
         }
 
-        if (requestedAmount != null && requestedAmount.compareTo(payment.getAmount()) != 0) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Partial refunds are not supported in this MVP");
-        }
-
         BigDecimal fee = calculateFee(payment.getAmount());
-        BigDecimal net = payment.getAmount().subtract(fee);
-        AccountEntity revenueAccount = accountService.getSystemRevenueAccount(payment.getCurrency());
+        requireFullAmountOrDefault(requestedAmount, payment.getAmount(), "refund");
 
-        JournalResponse refundJournal = ledgerService.createJournal(new CreateJournalRequest(
+        JournalResponse refundJournal = postCapturedFundsAdjustment(
+                payment,
                 JournalType.REFUND,
                 referenceId(payment.getId(), "refund"),
-                List.of(
-                        new CreateLedgerLegRequest(payment.getPayeeAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, net, payment.getCurrency()),
-                        new CreateLedgerLegRequest(revenueAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, fee, payment.getCurrency()),
-                        new CreateLedgerLegRequest(payment.getPayerAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, payment.getAmount(), payment.getCurrency())
-                )
-        ));
+                fee,
+                correlationId
+        );
 
         payment.setStatus(PaymentStatus.REFUNDED);
         PaymentIntentEntity saved = paymentRepository.save(payment);
+        appendAdjustment(saved, PaymentAdjustmentType.REFUND, payment.getAmount(), fee, request.reason(), refundJournal, correlationId, idempotencyKey);
         recordMutation(scope, idempotencyKey, fingerprint, saved);
 
         auditService.append(
@@ -315,6 +379,148 @@ public class PaymentService {
                 refundJournal.id(),
                 correlationId,
                 Map.of("status", saved.getStatus().name(), "reason", nullToBlank(request.reason()))
+        );
+        publishPaymentEvent(
+                "payment.refunded",
+                saved,
+                correlationId,
+                idempotencyKey,
+                Map.of(
+                        "journalId", refundJournal.id(),
+                        "fee", fee,
+                        "reason", nullToBlank(request.reason())
+                )
+        );
+        return saved;
+    }
+
+    @Transactional
+    public PaymentIntentEntity reverse(UUID paymentId,
+                                       PaymentAdjustmentRequest request,
+                                       String idempotencyKey,
+                                       String correlationId) {
+        BigDecimal requestedAmount = resolveOptionalAmount(request.amount(), request.amountCents());
+        String fingerprint = "reverse:" + (requestedAmount == null ? "FULL" : requestedAmount.toPlainString()) + ":" + nullToBlank(request.reason());
+        String scope = mutationScope("reverse", paymentId);
+        if (idempotencyService.isReplay(scope, idempotencyKey, fingerprint)) {
+            return getOrFail(paymentId);
+        }
+
+        PaymentIntentEntity payment = getOrFail(paymentId);
+        if (payment.getStatus() == PaymentStatus.REVERSED) {
+            recordMutation(scope, idempotencyKey, fingerprint, payment);
+            return payment;
+        }
+
+        JournalResponse reversalJournal;
+        BigDecimal feeAmount = BigDecimal.ZERO;
+        if (payment.getStatus() == PaymentStatus.RESERVED) {
+            requireFullAmountOrDefault(requestedAmount, payment.getAmount(), "reverse");
+            reversalJournal = releaseReservedFunds(payment, referenceId(payment.getId(), "reverse"), correlationId);
+        } else if (payment.getStatus() == PaymentStatus.CAPTURED || payment.getStatus() == PaymentStatus.SETTLED) {
+            requireFullAmountOrDefault(requestedAmount, payment.getAmount(), "reverse");
+            feeAmount = calculateFee(payment.getAmount());
+            reversalJournal = postCapturedFundsAdjustment(
+                    payment,
+                    JournalType.REVERSAL,
+                    referenceId(payment.getId(), "reverse"),
+                    feeAmount,
+                    correlationId
+            );
+        } else {
+            throw new ApiException(HttpStatus.CONFLICT, "Reverse only allowed for reserved/captured/settled payments");
+        }
+
+        payment.setStatus(PaymentStatus.REVERSED);
+        payment.setFailureReason(null);
+        PaymentIntentEntity saved = paymentRepository.save(payment);
+        appendAdjustment(saved, PaymentAdjustmentType.REVERSAL, payment.getAmount(), feeAmount, request.reason(), reversalJournal, correlationId, idempotencyKey);
+        recordMutation(scope, idempotencyKey, fingerprint, saved);
+
+        auditService.append(
+                "payment.reversed",
+                saved.getId(),
+                saved.getPayerAccountId(),
+                reversalJournal.id(),
+                correlationId,
+                Map.of(
+                        "status", saved.getStatus().name(),
+                        "reason", nullToBlank(request.reason())
+                )
+        );
+        publishPaymentEvent(
+                "payment.reversed",
+                saved,
+                correlationId,
+                idempotencyKey,
+                Map.of(
+                        "journalId", reversalJournal.id(),
+                        "fee", feeAmount,
+                        "reason", nullToBlank(request.reason())
+                )
+        );
+        return saved;
+    }
+
+    @Transactional
+    public PaymentIntentEntity chargeback(UUID paymentId,
+                                          PaymentAdjustmentRequest request,
+                                          String idempotencyKey,
+                                          String correlationId) {
+        BigDecimal requestedAmount = resolveOptionalAmount(request.amount(), request.amountCents());
+        String fingerprint = "chargeback:" + (requestedAmount == null ? "FULL" : requestedAmount.toPlainString()) + ":" + nullToBlank(request.reason());
+        String scope = mutationScope("chargeback", paymentId);
+        if (idempotencyService.isReplay(scope, idempotencyKey, fingerprint)) {
+            return getOrFail(paymentId);
+        }
+
+        PaymentIntentEntity payment = getOrFail(paymentId);
+        if (payment.getStatus() == PaymentStatus.CHARGEBACK) {
+            recordMutation(scope, idempotencyKey, fingerprint, payment);
+            return payment;
+        }
+        if (payment.getStatus() != PaymentStatus.CAPTURED && payment.getStatus() != PaymentStatus.SETTLED) {
+            throw new ApiException(HttpStatus.CONFLICT, "Chargeback only allowed after capture/settlement");
+        }
+
+        BigDecimal fee = calculateFee(payment.getAmount());
+        requireFullAmountOrDefault(requestedAmount, payment.getAmount(), "chargeback");
+
+        JournalResponse chargebackJournal = postCapturedFundsAdjustment(
+                payment,
+                JournalType.CHARGEBACK,
+                referenceId(payment.getId(), "chargeback"),
+                fee,
+                correlationId
+        );
+
+        payment.setStatus(PaymentStatus.CHARGEBACK);
+        payment.setFailureReason(null);
+        PaymentIntentEntity saved = paymentRepository.save(payment);
+        appendAdjustment(saved, PaymentAdjustmentType.CHARGEBACK, payment.getAmount(), fee, request.reason(), chargebackJournal, correlationId, idempotencyKey);
+        recordMutation(scope, idempotencyKey, fingerprint, saved);
+
+        auditService.append(
+                "payment.charged_back",
+                saved.getId(),
+                saved.getPayerAccountId(),
+                chargebackJournal.id(),
+                correlationId,
+                Map.of(
+                        "status", saved.getStatus().name(),
+                        "reason", nullToBlank(request.reason())
+                )
+        );
+        publishPaymentEvent(
+                "payment.charged_back",
+                saved,
+                correlationId,
+                idempotencyKey,
+                Map.of(
+                        "journalId", chargebackJournal.id(),
+                        "fee", fee,
+                        "reason", nullToBlank(request.reason())
+                )
         );
         return saved;
     }
@@ -345,6 +551,7 @@ public class PaymentService {
                     correlationId,
                     Map.of("status", saved.getStatus().name())
             );
+            publishPaymentEvent("payment.cancelled", saved, correlationId, idempotencyKey, Map.of());
             return saved;
         }
 
@@ -352,15 +559,7 @@ public class PaymentService {
             throw new ApiException(HttpStatus.CONFLICT, "Cancel only allowed before capture");
         }
 
-        AccountEntity holdingAccount = accountService.getSystemHoldingAccount(payment.getCurrency());
-        JournalResponse reversalJournal = ledgerService.createJournal(new CreateJournalRequest(
-                JournalType.REVERSAL,
-                referenceId(payment.getId(), "cancel"),
-                List.of(
-                        new CreateLedgerLegRequest(holdingAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, payment.getAmount(), payment.getCurrency()),
-                        new CreateLedgerLegRequest(payment.getPayerAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, payment.getAmount(), payment.getCurrency())
-                )
-        ));
+        JournalResponse reversalJournal = releaseReservedFunds(payment, referenceId(payment.getId(), "cancel"), correlationId);
 
         payment.setStatus(PaymentStatus.CANCELLED);
         PaymentIntentEntity saved = paymentRepository.save(payment);
@@ -374,10 +573,17 @@ public class PaymentService {
                 correlationId,
                 Map.of("status", saved.getStatus().name())
         );
+        publishPaymentEvent(
+                "payment.cancelled",
+                saved,
+                correlationId,
+                idempotencyKey,
+                Map.of("journalId", reversalJournal.id())
+        );
         return saved;
     }
 
-    private JournalResponse reserveFunds(PaymentIntentEntity payment, String referenceId) {
+    private JournalResponse reserveFunds(PaymentIntentEntity payment, String referenceId, String correlationId) {
         AccountEntity holdingAccount = accountService.getSystemHoldingAccount(payment.getCurrency());
         return ledgerService.createJournal(new CreateJournalRequest(
                 JournalType.RESERVE,
@@ -386,7 +592,58 @@ public class PaymentService {
                         new CreateLedgerLegRequest(payment.getPayerAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, payment.getAmount(), payment.getCurrency()),
                         new CreateLedgerLegRequest(holdingAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, payment.getAmount(), payment.getCurrency())
                 )
-        ));
+        ), correlationId);
+    }
+
+    private JournalResponse releaseReservedFunds(PaymentIntentEntity payment, String referenceId, String correlationId) {
+        AccountEntity holdingAccount = accountService.getSystemHoldingAccount(payment.getCurrency());
+        return ledgerService.createJournal(new CreateJournalRequest(
+                JournalType.REVERSAL,
+                referenceId,
+                List.of(
+                        new CreateLedgerLegRequest(holdingAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, payment.getAmount(), payment.getCurrency()),
+                        new CreateLedgerLegRequest(payment.getPayerAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, payment.getAmount(), payment.getCurrency())
+                )
+        ), correlationId);
+    }
+
+    private JournalResponse postCapturedFundsAdjustment(PaymentIntentEntity payment,
+                                                        JournalType journalType,
+                                                        String referenceId,
+                                                        BigDecimal fee,
+                                                        String correlationId) {
+        AccountEntity revenueAccount = accountService.getSystemRevenueAccount(payment.getCurrency());
+        BigDecimal net = payment.getAmount().subtract(fee);
+        return ledgerService.createJournal(new CreateJournalRequest(
+                journalType,
+                referenceId,
+                List.of(
+                        new CreateLedgerLegRequest(payment.getPayeeAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, net, payment.getCurrency()),
+                        new CreateLedgerLegRequest(revenueAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, fee, payment.getCurrency()),
+                        new CreateLedgerLegRequest(payment.getPayerAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, payment.getAmount(), payment.getCurrency())
+                )
+        ), correlationId);
+    }
+
+    private void appendAdjustment(PaymentIntentEntity payment,
+                                  PaymentAdjustmentType type,
+                                  BigDecimal amount,
+                                  BigDecimal feeAmount,
+                                  String reason,
+                                  JournalResponse journal,
+                                  String correlationId,
+                                  String idempotencyKey) {
+        PaymentAdjustmentEntity adjustment = new PaymentAdjustmentEntity();
+        adjustment.setPaymentId(payment.getId());
+        adjustment.setType(type);
+        adjustment.setAmount(amount);
+        adjustment.setFeeAmount(feeAmount);
+        adjustment.setCurrency(payment.getCurrency());
+        adjustment.setReason(nullToBlank(reason));
+        adjustment.setJournalId(journal.id());
+        adjustment.setCorrelationId(correlationId);
+        adjustment.setIdempotencyKey(idempotencyKey);
+        paymentAdjustmentRepository.save(adjustment);
     }
 
     private void validatePaymentAccounts(UUID payerId, UUID payeeId, String currency) {
@@ -397,9 +654,10 @@ public class PaymentService {
         AccountEntity payer = accountService.getOrFail(payerId);
         AccountEntity payee = accountService.getOrFail(payeeId);
 
-        if (!payer.getCurrency().equals(currency) || !payee.getCurrency().equals(currency)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Account currencies must match payment currency");
-        }
+        accountService.requirePaymentParticipationAllowed(payer, "payer");
+        accountService.requirePaymentParticipationAllowed(payee, "payee");
+        accountService.requireCurrencySupport(payer, currency);
+        accountService.requireCurrencySupport(payee, currency);
     }
 
     private PaymentIntentEntity getOrFail(UUID paymentId) {
@@ -445,6 +703,16 @@ public class PaymentService {
             return resolved.setScale(4, RoundingMode.HALF_UP);
         }
         return null;
+    }
+
+    private BigDecimal requireFullAmountOrDefault(BigDecimal requestedAmount, BigDecimal fullAmount, String action) {
+        if (requestedAmount == null) {
+            return fullAmount;
+        }
+        if (requestedAmount.compareTo(fullAmount) != 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Partial " + action + "s are not supported in this workflow");
+        }
+        return requestedAmount;
     }
 
     private String normalizeCurrency(String currency) {
@@ -521,6 +789,61 @@ public class PaymentService {
 
     private String nullToBlank(String value) {
         return value == null ? "" : value;
+    }
+
+    private void publishPaymentEvent(String eventType,
+                                     PaymentIntentEntity payment,
+                                     String correlationId,
+                                     String idempotencyKey,
+                                     Map<String, Object> details) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("paymentId", payment.getId());
+        payload.put("status", payment.getStatus().name());
+        payload.put("payerAccountId", payment.getPayerAccountId());
+        payload.put("payeeAccountId", payment.getPayeeAccountId());
+        payload.put("amount", payment.getAmount());
+        payload.put("currency", payment.getCurrency());
+        if (payment.getRiskDecision() != null) {
+            payload.put("riskDecision", payment.getRiskDecision().name());
+        }
+        if (payment.getRiskScore() != null) {
+            payload.put("riskScore", payment.getRiskScore());
+        }
+        if (payment.getFailureReason() != null && !payment.getFailureReason().isBlank()) {
+            payload.put("failureReason", payment.getFailureReason());
+        }
+        if (payment.getSettlementScheduledFor() != null) {
+            payload.put("settlementScheduledFor", payment.getSettlementScheduledFor());
+        }
+        if (payment.getSettledAt() != null) {
+            payload.put("settledAt", payment.getSettledAt());
+        }
+        if (payment.getSettlementBatchId() != null) {
+            payload.put("settlementBatchId", payment.getSettlementBatchId());
+        }
+        payload.putAll(details);
+
+        outboxService.enqueue(
+                eventType,
+                "payment",
+                payment.getId(),
+                payment.getId().toString(),
+                correlationId,
+                idempotencyKey,
+                payload
+        );
+        notificationService.enqueuePaymentEvent(eventType, payment, correlationId, payload);
+    }
+
+    private Instant nextSettlementCutoff(Instant capturedAt) {
+        ZonedDateTime capturedUtc = capturedAt.atZone(ZoneOffset.UTC);
+        ZonedDateTime cutoff = capturedUtc.toLocalDate()
+                .atTime(17, 0)
+                .atZone(ZoneOffset.UTC);
+        if (capturedUtc.isAfter(cutoff)) {
+            cutoff = cutoff.plusDays(1);
+        }
+        return cutoff.toInstant();
     }
 
     private static class ExistingPaymentException extends RuntimeException {
