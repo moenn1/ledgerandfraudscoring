@@ -7,12 +7,16 @@ import com.ledgerforge.payments.account.AccountRepository;
 import com.ledgerforge.payments.account.AccountStatus;
 import com.ledgerforge.payments.payment.PaymentIntentEntity;
 import com.ledgerforge.payments.payment.PaymentIntentRepository;
+import com.ledgerforge.payments.payment.PaymentService;
 import com.ledgerforge.payments.payment.PaymentStatus;
+import com.ledgerforge.payments.payment.api.PaymentAdjustmentRequest;
+import com.ledgerforge.payments.payment.api.CreatePaymentRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,6 +54,9 @@ class LedgerControllerIntegrationTest {
 
     @Autowired
     private PaymentIntentRepository paymentIntentRepository;
+
+    @Autowired
+    private PaymentService paymentService;
 
     @Test
     void replayAccount_returnsRunningBalanceFromImmutableEntries() throws Exception {
@@ -140,6 +147,50 @@ class LedgerControllerIntegrationTest {
         assertThat(mismatch.get("actualJournalTypes")).isEmpty();
         assertThat(mismatch.get("missingJournalTypes")).extracting(JsonNode::asText).containsExactly("CAPTURE", "RESERVE");
         assertThat(mismatch.get("unexpectedJournalTypes")).isEmpty();
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void replayAccount_usesCommittedPaymentLifecycleJournals() throws Exception {
+        UUID payerId = createAccount("replay-flow-payer", "USD");
+        UUID payeeId = createAccount("replay-flow-payee", "USD");
+
+        String createKey = "replay-flow-create-" + UUID.randomUUID();
+        PaymentIntentEntity payment = paymentService.createWithIdempotency(
+                new CreatePaymentRequest(payerId, payeeId, null, 12_500L, "USD", createKey),
+                createKey,
+                "corr-replay-flow"
+        );
+        paymentService.confirm(payment.getId(), null, "replay-flow-confirm-" + UUID.randomUUID(), "corr-replay-flow");
+        paymentService.capture(payment.getId(), "replay-flow-capture-" + UUID.randomUUID(), "corr-replay-flow");
+        paymentService.refund(
+                payment.getId(),
+                new PaymentAdjustmentRequest(null, null, "replay verification"),
+                "replay-flow-refund-" + UUID.randomUUID(),
+                "corr-replay-flow"
+        );
+
+        JsonNode payerReplay = objectMapper.readTree(mockMvc.perform(get("/api/ledger/replay/accounts/{accountId}", payerId))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+
+        assertThat(payerReplay.get("entryCount").asInt()).isEqualTo(2);
+        assertThat(payerReplay.get("projectedBalance").decimalValue()).isEqualByComparingTo("0.0000");
+        assertThat(payerReplay.at("/entries/0/referenceId").asText()).isEqualTo("payment:" + payment.getId() + ":reserve");
+        assertThat(payerReplay.at("/entries/1/referenceId").asText()).isEqualTo("payment:" + payment.getId() + ":refund");
+
+        JsonNode payeeReplay = objectMapper.readTree(mockMvc.perform(get("/api/ledger/replay/accounts/{accountId}", payeeId))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+
+        assertThat(payeeReplay.get("entryCount").asInt()).isEqualTo(2);
+        assertThat(payeeReplay.get("projectedBalance").decimalValue()).isEqualByComparingTo("0.0000");
+        assertThat(payeeReplay.at("/entries/0/referenceId").asText()).isEqualTo("payment:" + payment.getId() + ":capture");
+        assertThat(payeeReplay.at("/entries/1/referenceId").asText()).isEqualTo("payment:" + payment.getId() + ":refund");
     }
 
     private UUID createAccount(String ownerId, String currency) {

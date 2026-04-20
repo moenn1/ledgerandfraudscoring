@@ -25,6 +25,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Event delivery documentation covering the outbox contract, replay-safe semantics, and relay configuration knobs.
 - A local `scripts/generate-operator-token.py` helper so demo, smoke, and frontend flows can mint bearer tokens against the secured backend without an external identity provider.
 - Field-level data-protection controls for webhook secrets, operator/payment responses, and outbox inspection surfaces, including encrypted webhook signing-secret storage and masked replay identifiers.
+- Targeted resilience coverage for concurrent create-idempotency races, fraud timeout fallback, outbox relay lease contention, and payment-lifecycle replay paths.
 
 ### Changed
 - The Postman collection and local environment now reflect the secured UUID-based API surface, including role-scoped bearer-token variables and current payment, fraud, ledger, settlement, webhook, and outbox routes.
@@ -48,8 +49,10 @@ All notable changes to LedgerForge Payments should be recorded here.
 ### Fixed
 - Local demo seeding and smoke validation scripts now create real UUID-backed accounts, verify payment idempotency, and exercise reserve/capture ledger flows against the live API.
 - Backend payment integration tests now use transactional rollback so idempotency assertions stay isolated across test methods.
+- Concurrent payment-intent creation now collapses duplicate idempotency races onto the committed payment row, while fraud-scoring timeouts persist a `FRAUD_TIMEOUT` signal and route the intent into manual review without duplicating audit or outbox side effects.
 - Notification webhook hashing and payload-column mappings now align with the current schema so Hibernate validation and backend test startup succeed.
 - Live manual-review decisions in the operator console now refresh payment and ledger data after the backend response so approved cases reflect the reserved status and posted reserve journal instead of a guessed local transition.
+- Concurrent duplicate payment-create requests now return the winning committed payment instead of bubbling an `UnexpectedRollbackException`, and fraud-scoring timeouts now route the payment into manual review with a persisted `FRAUD_TIMEOUT` signal.
 
 ### Documentation Policy
 - Every push must include corresponding documentation updates.

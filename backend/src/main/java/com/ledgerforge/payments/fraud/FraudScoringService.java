@@ -15,12 +15,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 
 @Service
 public class FraudScoringService {
 
     private static final BigDecimal NEW_DEVICE_AMOUNT_THRESHOLD = new BigDecimal("500.00");
     private static final BigDecimal HIGH_VALUE_THRESHOLD = new BigDecimal("1000.00");
+    private static final FraudReason FRAUD_TIMEOUT_REASON = new FraudReason(
+            "FRAUD_TIMEOUT",
+            "Fraud scoring timed out; routed to manual review",
+            40
+    );
 
     private final PaymentIntentRepository paymentIntentRepository;
     private final FraudSignalRepository fraudSignalRepository;
@@ -35,6 +41,19 @@ public class FraudScoringService {
     public FraudEvaluation score(PaymentIntentEntity payment,
                                  ConfirmPaymentRequest request,
                                  Instant payerCreatedAt) {
+        try {
+            return evaluatePolicy(payment, request, payerCreatedAt);
+        } catch (RuntimeException ex) {
+            if (!isTimeoutFailure(ex)) {
+                throw ex;
+            }
+            return timeoutFallback(payment.getId());
+        }
+    }
+
+    FraudEvaluation evaluatePolicy(PaymentIntentEntity payment,
+                                   ConfirmPaymentRequest request,
+                                   Instant payerCreatedAt) {
         List<FraudReason> reasons = new ArrayList<>();
         Instant now = Instant.now();
 
@@ -123,6 +142,16 @@ public class FraudScoringService {
         return new FraudEvaluation(score, decision, reasons);
     }
 
+    @Transactional
+    public FraudEvaluation timeoutFallback(UUID paymentId) {
+        persistSignal(paymentId, FRAUD_TIMEOUT_REASON);
+        return new FraudEvaluation(
+                FRAUD_TIMEOUT_REASON.weight(),
+                RiskDecision.REVIEW,
+                List.of(FRAUD_TIMEOUT_REASON)
+        );
+    }
+
     private RiskDecision toDecision(int score) {
         if (score >= 70) {
             return RiskDecision.REJECT;
@@ -135,12 +164,27 @@ public class FraudScoringService {
 
     private void persistSignals(UUID paymentId, List<FraudReason> reasons) {
         for (FraudReason reason : reasons) {
-            FraudSignalEntity signal = new FraudSignalEntity();
-            signal.setPaymentId(paymentId);
-            signal.setSignalType(reason.code().toUpperCase(Locale.ROOT));
-            signal.setSignalValue(reason.message());
-            signal.setWeight(reason.weight());
-            fraudSignalRepository.save(signal);
+            persistSignal(paymentId, reason);
         }
+    }
+
+    private void persistSignal(UUID paymentId, FraudReason reason) {
+        FraudSignalEntity signal = new FraudSignalEntity();
+        signal.setPaymentId(paymentId);
+        signal.setSignalType(reason.code().toUpperCase(Locale.ROOT));
+        signal.setSignalValue(reason.message());
+        signal.setWeight(reason.weight());
+        fraudSignalRepository.save(signal);
+    }
+
+    private boolean isTimeoutFailure(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof TimeoutException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

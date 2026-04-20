@@ -6,9 +6,9 @@ This project should explicitly handle partial failures and retries without break
 
 | Scenario | Risk | Required Handling |
 |---|---|---|
-| Payment request retried twice | Duplicate processing | Enforce idempotency key on create/confirm |
+| Payment request retried twice | Duplicate processing | Enforce idempotency key on create/confirm and return the original payment after concurrent duplicate inserts race |
 | Ledger write succeeds, event publish fails | Lost downstream updates | Transactional outbox + async relay retry |
-| Fraud service timeout | Indeterminate decision | Timeout policy: retry, then `REVIEW` fallback |
+| Fraud service timeout | Indeterminate decision | Timeout policy: retry, then `REVIEW` fallback with a persisted `FRAUD_TIMEOUT` signal and manual-review case |
 | Duplicate webhook/callback | Duplicate state changes | Deduplicate by event id + optimistic checks |
 | Webhook consumer rejects a delivered notification | Lost downstream side-effect | Record the callback, mark the receipt as rejected, and reschedule bounded retries without mutating ledger history |
 | Projection lag behind ledger | Stale reads | Display as eventual; provide replay endpoint |
@@ -44,6 +44,18 @@ If a downstream step fails after ledger mutation:
 - Event publish relay: unbounded retries with backoff + dead-letter after threshold
 - External webhook dispatch: bounded retries with idempotent delivery id
 - Callback acknowledgements: deduplicate by `(endpoint_id, callback_id)` and reject payload drift for a reused callback id
+
+## Concurrency Baseline
+
+- Concurrent `POST /payments` attempts with the same idempotency key must collapse onto one committed payment row and one audit/outbox side-effect set.
+- Replay and recovery flows should always read back the committed payment record instead of guessing local state after a duplicate-key race.
+
+## Verified Coverage
+
+- Concurrent create requests that reuse the same idempotency key now resolve to the single committed payment record instead of surfacing a rollback error to the caller.
+- Fraud-scoring timeout paths now fall back to manual review, persist a `FRAUD_TIMEOUT` signal, and keep the ledger untouched until an operator decision is applied.
+- Outbox relay lease contention is covered with concurrent integration tests so only one relay worker claims and publishes a due event.
+- Ledger replay coverage now exercises full payment lifecycle journals, ensuring operator replay views stay correct after reserve, capture, and refund flows.
 
 ## Operational Alerts
 

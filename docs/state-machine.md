@@ -78,4 +78,5 @@ stateDiagram-v2
 
 - Same idempotency key with same payload returns original response.
 - Same key with different payload returns conflict.
+- Concurrent create attempts with the same idempotency key must converge on the committed payment intent and must not duplicate audit or outbox records.
 - All mutation endpoints should persist idempotency record and response hash.

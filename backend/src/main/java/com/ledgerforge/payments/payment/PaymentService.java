@@ -20,9 +20,13 @@ import com.ledgerforge.payments.outbox.OutboxService;
 import com.ledgerforge.payments.payment.api.ConfirmPaymentRequest;
 import com.ledgerforge.payments.payment.api.CreatePaymentRequest;
 import com.ledgerforge.payments.payment.api.PaymentAdjustmentRequest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -33,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.locks.LockSupport;
 
 @Service
 public class PaymentService {
@@ -49,6 +54,7 @@ public class PaymentService {
     private final ManualReviewService manualReviewService;
     private final NotificationService notificationService;
     private final OutboxService outboxService;
+    private final TransactionTemplate requiresNewTransactionTemplate;
 
     public PaymentService(PaymentIntentRepository paymentRepository,
                           PaymentAdjustmentRepository paymentAdjustmentRepository,
@@ -59,7 +65,8 @@ public class PaymentService {
                           FraudScoringService fraudScoringService,
                           ManualReviewService manualReviewService,
                           NotificationService notificationService,
-                          OutboxService outboxService) {
+                          OutboxService outboxService,
+                          PlatformTransactionManager transactionManager) {
         this.paymentRepository = paymentRepository;
         this.paymentAdjustmentRepository = paymentAdjustmentRepository;
         this.accountService = accountService;
@@ -70,6 +77,8 @@ public class PaymentService {
         this.manualReviewService = manualReviewService;
         this.notificationService = notificationService;
         this.outboxService = outboxService;
+        this.requiresNewTransactionTemplate = new TransactionTemplate(transactionManager);
+        this.requiresNewTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Transactional
@@ -97,7 +106,7 @@ public class PaymentService {
         payment.setStatus(PaymentStatus.CREATED);
         payment.setFailureReason(null);
 
-        PaymentIntentEntity saved = paymentRepository.save(payment);
+        PaymentIntentEntity saved = paymentRepository.saveAndFlush(payment);
         auditService.append(
                 "payment.created",
                 saved.getId(),
@@ -207,7 +216,7 @@ public class PaymentService {
 
         if (evaluation.decision() == RiskDecision.REVIEW) {
             payment.setStatus(PaymentStatus.RISK_SCORING);
-            payment.setFailureReason("Pending manual review");
+            payment.setFailureReason(reviewFailureReason(evaluation.reasons()));
             PaymentIntentEntity saved = paymentRepository.save(payment);
             manualReviewService.openCaseIfAbsent(saved, evaluation.reasons(), correlationId);
             recordMutation(scope, idempotencyKey, fingerprint, saved);
@@ -787,6 +796,14 @@ public class PaymentService {
                 .orElse("Risk score exceeds threshold");
     }
 
+    private String reviewFailureReason(List<FraudReason> reasons) {
+        boolean timedOut = reasons.stream().anyMatch(reason -> "FRAUD_TIMEOUT".equals(reason.code()));
+        if (timedOut) {
+            return "Pending manual review after fraud timeout";
+        }
+        return "Pending manual review";
+    }
+
     private String nullToBlank(String value) {
         return value == null ? "" : value;
     }
@@ -854,12 +871,42 @@ public class PaymentService {
         }
     }
 
-    @Transactional
     public PaymentIntentEntity createWithIdempotency(CreatePaymentRequest request, String idempotencyKey, String correlationId) {
         try {
-            return create(request, idempotencyKey, correlationId);
+            return requiresNewTransactionTemplate.execute(status -> create(request, idempotencyKey, correlationId));
         } catch (ExistingPaymentException existing) {
             return existing.payment;
+        } catch (DataIntegrityViolationException ex) {
+            return findCreatedPaymentByIdempotency(request, idempotencyKey);
         }
+    }
+
+    private PaymentIntentEntity findCreatedPaymentByIdempotency(CreatePaymentRequest request, String idempotencyKey) {
+        BigDecimal amount = resolveAmount(request.amount(), request.amountCents());
+        String currency = normalizeCurrency(request.currency());
+        String requestedFingerprint = createFingerprint(
+                request.payerAccountId(),
+                request.payeeAccountId(),
+                amount,
+                currency
+        );
+
+        for (int attempt = 0; attempt < 5; attempt++) {
+            PaymentIntentEntity existing = requiresNewTransactionTemplate.execute(status ->
+                    paymentRepository.findByIdempotencyKey(idempotencyKey).orElse(null)
+            );
+            if (existing == null) {
+                LockSupport.parkNanos(25_000_000L);
+                continue;
+            }
+
+            String existingFingerprint = createFingerprint(existing);
+            if (!existingFingerprint.equals(requestedFingerprint)) {
+                throw new ApiException(HttpStatus.CONFLICT, "Idempotency key reused with different create payload");
+            }
+            return existing;
+        }
+
+        throw new ApiException(HttpStatus.CONFLICT, "Duplicate payment idempotency key");
     }
 }
