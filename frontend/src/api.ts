@@ -9,11 +9,10 @@ import {
   ReconciliationItem,
   ReviewCase
 } from "./types";
+import { apiBaseUrl, apiBearerToken } from "./config";
 import { deriveAuditEntries, deriveRepairRecommendations, deriveRetryAttempts } from "./investigation";
 import { mockData } from "./mockData";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
-const API_BEARER_TOKEN = import.meta.env.VITE_API_BEARER_TOKEN;
 const REQUEST_TIMEOUT_MS = 2_000;
 
 interface ApiPayment {
@@ -66,14 +65,14 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const headers = new Headers(init?.headers);
-    if (API_BEARER_TOKEN && !headers.has("Authorization")) {
-      headers.set("Authorization", `Bearer ${API_BEARER_TOKEN}`);
+    if (apiBearerToken && !headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${apiBearerToken}`);
     }
     if (init?.body && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
     }
 
-    const response = await fetch(`${API_BASE_URL}${path}`, {
+    const response = await fetch(`${apiBaseUrl}${path}`, {
       ...init,
       headers,
       signal: controller.signal

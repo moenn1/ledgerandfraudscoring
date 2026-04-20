@@ -6,6 +6,7 @@
 
 - Distributed tracing with correlation IDs (`payment_id`, `journal_id`, `account_id`)
 - Structured logs (JSON) with stable field names
+- Prometheus scraping for backend actuator metrics in shared and local full-stack deployments
 - Metrics:
   - payment create/confirm/capture latency
   - approval/review/reject rates
@@ -73,9 +74,11 @@ Webhook delivery and callback handling should also emit immutable audit events t
 
 - The backend now runs as an OAuth2 resource server and validates bearer tokens against either `issuer-uri`, `jwk-set-uri`, or the local HS256 dev secret.
 - Role hierarchy is enforced as `Admin -> Operator/Reviewer -> Viewer`.
+- The full-stack local compose profile now exposes Prometheus and Zipkin so metrics and traces can be inspected without leaving the containerized demo flow.
 - Manual-review decisions no longer trust a request-body actor field; the authenticated principal becomes the audit actor.
 - `401` and `403` responses are emitted as JSON and appended to the immutable audit trail as security events.
 - The local helper `scripts/generate-operator-token.py` mints HS256 tokens for demo and smoke flows; shared environments should override the dev secret or use a real issuer.
+- The optional Keycloak compose profile seeds a local realm and client that emit the `roles` and audience claims expected by the backend for OIDC-backed demos.
 - Webhook endpoint signing secrets are encrypted before persistence using `LEDGERFORGE_DATA_PROTECTION_KEY`; shared environments must override the dev default.
 - Payment, adjustment, webhook, and outbox responses now expose masked idempotency or secret fields so operators can correlate records without copying replay material.
 

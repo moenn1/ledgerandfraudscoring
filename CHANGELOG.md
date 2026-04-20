@@ -26,6 +26,8 @@ All notable changes to LedgerForge Payments should be recorded here.
 - A local `scripts/generate-operator-token.py` helper so demo, smoke, and frontend flows can mint bearer tokens against the secured backend without an external identity provider.
 - Field-level data-protection controls for webhook secrets, operator/payment responses, and outbox inspection surfaces, including encrypted webhook signing-secret storage and masked replay identifiers.
 - Targeted resilience coverage for concurrent create-idempotency races, fraud timeout fallback, outbox relay lease contention, and payment-lifecycle replay paths.
+- Container builds for the backend and operator console, plus a compose-driven full-stack local topology covering PostgreSQL, Redis, Kafka, Zipkin, Prometheus, and an optional Keycloak realm for OIDC demos.
+- A deployment-topology reference describing the local compose profiles and the intended shared-environment runtime shape.
 
 ### Changed
 - The Postman collection and local environment now reflect the secured UUID-based API surface, including role-scoped bearer-token variables and current payment, fraud, ledger, settlement, webhook, and outbox routes.
@@ -45,6 +47,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Payment responses now expose settlement cutoff and batch metadata, while the operator docs include the settlement and payout runner workflow.
 - Webhook delivery fan-out now shifts behind the broker when Kafka is enabled, while the direct in-process path remains available for fast local H2 runs.
 - Repository-facing docs now use product and implementation language only, without internal workflow references.
+- Local developer tooling now generates a compose runtime env, injects browser-facing API/auth settings into the frontend container at startup, and can bootstrap an end-to-end OIDC-backed local demo flow.
 
 ### Fixed
 - Local demo seeding and smoke validation scripts now create real UUID-backed accounts, verify payment idempotency, and exercise reserve/capture ledger flows against the live API.

@@ -1,0 +1,2 @@
+window.__LEDGERFORGE_RUNTIME_CONFIG__ = window.__LEDGERFORGE_RUNTIME_CONFIG__ || {};
+

@@ -47,18 +47,36 @@ This mode requires no Docker and is the quickest path for UI and API iteration.
 4. Run seeded demo requests:
    - `./scripts/demo-run.sh`
 
+### Full containerized path
+
+1. Start the platform services plus application containers:
+   - `./scripts/dev-up.sh --full-stack`
+2. Open the operator console:
+   - `http://127.0.0.1:4173`
+3. Optional OIDC-backed variant:
+   - `./scripts/dev-up.sh --full-stack --auth`
+4. Stop the stack when finished:
+   - `./scripts/dev-down.sh`
+
 Default ports:
 
 - backend API: `http://localhost:8080`
-- frontend UI: `http://127.0.0.1:5173`
+- frontend UI (Vite): `http://127.0.0.1:5173`
+- frontend UI (containerized): `http://127.0.0.1:4173`
 - PostgreSQL: `localhost:5432`
 - Redis (extended profile): `localhost:6379`
 - Kafka (extended profile): `localhost:9092`
+- Zipkin (extended profile): `http://127.0.0.1:9411`
+- Prometheus (extended profile): `http://127.0.0.1:9090`
+- Keycloak (optional auth profile): `http://127.0.0.1:8081`
 
 ## Local Workflow Assets
 
-- `docker-compose.yml`: local Postgres plus optional Redis/Kafka profile
-- `scripts/dev-up.sh` / `scripts/dev-down.sh`: dependency lifecycle wrappers
+- `docker-compose.yml`: local PostgreSQL plus platform, full-stack, and optional auth profiles
+- `backend/Dockerfile` / `frontend/Dockerfile`: container builds for the API and operator console
+- `scripts/dev-up.sh` / `scripts/dev-down.sh`: compose lifecycle wrappers for dependency-only and full-stack flows
+- `scripts/render-compose-env.sh`: generates the local compose env file, including a demo operator token
+- `scripts/fetch-keycloak-token.sh`: mints a Keycloak access token for the optional OIDC profile
 - `scripts/generate-operator-token.py`: mints local HS256 operator tokens for the secured API
 - `scripts/seed-demo.sh`: creates one captured payment and one manual-review case
 - `scripts/smoke-test.sh`: validates health, create idempotency, confirm, capture, and ledger inspection
@@ -74,6 +92,7 @@ Default ports:
 
 - `docs/api-contracts.md`: contract artifacts, versioning rules, and compatibility expectations
 - `docs/runbook-local-demo.md`: end-to-end demo walkthrough
+- `docs/deployment-topology.md`: local compose profiles and the target deployment shape
 - `docs/local-api-requests.md`: concrete `curl` examples for local runs
 - `docs/event-delivery.md`: outbox, Kafka relay, and consumer workflow details
 - `docs/observability-security.md`: security boundaries, audit expectations, and webhook signature notes

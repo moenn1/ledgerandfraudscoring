@@ -44,6 +44,12 @@ management:
     health:
       probes:
         enabled: true
+  tracing:
+    sampling:
+      probability: ${LEDGERFORGE_TRACING_SAMPLING_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${LEDGERFORGE_TRACING_ZIPKIN_ENDPOINT:}
 
 server:
   port: ${PORT:8080}

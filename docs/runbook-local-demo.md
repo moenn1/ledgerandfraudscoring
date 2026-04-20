@@ -7,19 +7,24 @@ This runbook provides a concrete path to run and present the current backend and
 - Java 17+
 - Maven 3.8+
 - Node.js 18+
-- Docker + Docker Compose (for PostgreSQL and optional Redis/Kafka)
+- Docker + Docker Compose (for PostgreSQL, platform services, and the full containerized stack)
 
 ## Local Topology
 
 ```mermaid
 flowchart LR
-    UI[Operator UI :5173] --> API[Backend API :8080]
+    Browser[Browser] --> UI[Operator UI :5173 or :4173]
     API --> PG[(PostgreSQL :5432)]
     API --> Redis[(Redis :6379)]
     API --> Kafka[(Kafka :9092)]
+    API --> Zipkin[Zipkin :9411]
+    Prometheus[Prometheus :9090] --> API
+    Browser -. optional OIDC login/token .-> Keycloak[Keycloak :8081]
+    UI --> API[Backend API :8080]
+    API -. optional JWK validation .-> Keycloak
 ```
 
-Only PostgreSQL is required by the backend today. Redis and Kafka are available behind the compose `extended` profile so the local topology can match the planned production shape without making the default path heavy.
+Only PostgreSQL is required for the lightest backend run. The compose `platform` profile adds Redis, Kafka, Zipkin, and Prometheus, while the `full` and `auth` profiles let the whole stack run inside containers for cleaner demos.
 
 ## Startup Sequence
 
@@ -57,6 +62,29 @@ Only PostgreSQL is required by the backend today. Redis and Kafka are available 
    - `./scripts/dev-down.sh`
    - remove local volumes: `./scripts/dev-down.sh --volumes`
 
+### Option C: full containerized stack
+
+1. Start the application and platform containers:
+   - `./scripts/dev-up.sh --full-stack`
+2. Open the operator console:
+   - `http://127.0.0.1:4173`
+3. Run seeded demo requests from the host:
+   - `./scripts/demo-run.sh`
+4. Stop the stack:
+   - `./scripts/dev-down.sh`
+
+### Option D: full stack with optional OIDC provider
+
+1. Start the stack with Keycloak:
+   - `./scripts/dev-up.sh --full-stack --auth`
+2. The startup wrapper seeds a local Keycloak realm, fetches an operator token, and injects it into the frontend container runtime config.
+3. Browse supporting services as needed:
+   - Keycloak: `http://127.0.0.1:8081`
+   - Zipkin: `http://127.0.0.1:9411`
+   - Prometheus: `http://127.0.0.1:9090`
+4. Stop the stack:
+   - `./scripts/dev-down.sh`
+
 ## Demo Script
 
 1. Run `./scripts/seed-demo.sh` if you want only seeded data without the smoke assertions.
@@ -92,4 +120,6 @@ For copy-paste `curl` requests covering create, confirm, capture, risk, and manu
 - If backend fails on migrations with PostgreSQL: `./scripts/dev-down.sh --volumes` and restart the compose stack.
 - If `./scripts/demo-run.sh` fails immediately: confirm the backend is answering `GET /actuator/health`.
 - If the UI shows an auth error or drops into mock mode unexpectedly: verify `VITE_API_BASE_URL`, `VITE_API_BEARER_TOKEN`, and the backend JWT secret and issuer settings match.
+- If the containerized UI comes up without live data: inspect `http://127.0.0.1:4173/runtime-config.js` and confirm the generated API base URL and bearer token are populated.
+- If the Keycloak-backed profile fails to authenticate: wait for `http://127.0.0.1:8081/realms/ledgerforge/.well-known/openid-configuration` to respond, then restart `./scripts/dev-up.sh --full-stack --auth`.
 - If manual-review approval returns a conflict: the case was already decided; seed a new review payment and retry.

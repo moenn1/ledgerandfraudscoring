@@ -1,0 +1,104 @@
+{
+  "realm": "ledgerforge",
+  "enabled": true,
+  "displayName": "LedgerForge",
+  "loginWithEmailAllowed": true,
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "ADMIN"
+      },
+      {
+        "name": "OPERATOR"
+      },
+      {
+        "name": "REVIEWER"
+      },
+      {
+        "name": "VIEWER"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "ledgerforge-local-cli",
+      "name": "LedgerForge Local CLI",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "ledgerforge-operator-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "operator.admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "LedgerForge",
+      "lastName": "Admin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "operator-admin",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ADMIN",
+        "OPERATOR",
+        "REVIEWER",
+        "VIEWER"
+      ]
+    },
+    {
+      "username": "risk.reviewer",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "LedgerForge",
+      "lastName": "Reviewer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "reviewer-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "REVIEWER",
+        "VIEWER"
+      ]
+    }
+  ]
+}

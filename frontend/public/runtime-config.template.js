@@ -1,0 +1,5 @@
+window.__LEDGERFORGE_RUNTIME_CONFIG__ = {
+  apiBaseUrl: "${LEDGERFORGE_API_BASE_URL}",
+  apiBearerToken: "${LEDGERFORGE_OPERATOR_BEARER_TOKEN}"
+};
+

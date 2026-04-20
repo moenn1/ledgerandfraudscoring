@@ -32,6 +32,26 @@ require_cmd() {
   fi
 }
 
+wait_for_http() {
+  local label="$1"
+  local url="$2"
+  local timeout_seconds="${3:-${TIMEOUT_SECONDS:-60}}"
+  local sleep_seconds="${SLEEP_SECONDS:-2}"
+  local deadline=$((SECONDS + timeout_seconds))
+
+  log "waiting for ${label} at ${url}"
+  while (( SECONDS < deadline )); do
+    if curl -fsS "${url}" >/dev/null 2>&1; then
+      log "${label} is ready"
+      return 0
+    fi
+    sleep "${sleep_seconds}"
+  done
+
+  log "${label} did not become ready within ${timeout_seconds}s"
+  return 1
+}
+
 http_json() {
   local method="$1"
   local url="$2"

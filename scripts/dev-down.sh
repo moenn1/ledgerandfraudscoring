@@ -19,5 +19,8 @@ if [[ "${1:-}" == "--volumes" ]]; then
 fi
 
 log "stopping local dependencies"
-docker compose -f "${ROOT_DIR}/docker-compose.yml" down "${remove_volumes[@]}"
+docker compose \
+  --env-file "${COMPOSE_ENV_FILE:-${ROOT_DIR}/tmp/docker-compose.env}" \
+  -f "${ROOT_DIR}/docker-compose.yml" \
+  down "${remove_volumes[@]}"
 log "dependencies stopped"

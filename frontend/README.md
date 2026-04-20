@@ -32,6 +32,15 @@ npm run build
 npm run preview
 ```
 
+## Container runtime
+
+The container image serves the built app through Nginx on port `80` and injects API settings at startup via `runtime-config.js`.
+
+- `LEDGERFORGE_API_BASE_URL`: backend base URL exposed to the browser
+- `LEDGERFORGE_OPERATOR_BEARER_TOKEN`: optional operator bearer token injected into the browser runtime config
+
+This keeps the same image reusable across local compose profiles without rebuilding for every API host or token change.
+
 ## API configuration
 
 Set `VITE_API_BASE_URL` to point to your backend (default: `http://localhost:8080`).
@@ -44,6 +53,8 @@ VITE_API_BASE_URL=http://localhost:8080 \
 VITE_API_BEARER_TOKEN="<operator-bearer-token>" \
 npm run dev
 ```
+
+For the containerized flow, `./scripts/dev-up.sh --full-stack` writes the equivalent runtime config for the Nginx-served build automatically.
 
 If the backend returns `401` or `403`, the UI surfaces that authorization failure instead of silently dropping into mock mode.
 
