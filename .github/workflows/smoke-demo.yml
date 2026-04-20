@@ -1,0 +1,85 @@
+name: smoke-demo
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - backend/**
+      - scripts/**
+      - .github/workflows/smoke-demo.yml
+  push:
+    branches:
+      - main
+      - feature/**
+      - fix/**
+    paths:
+      - backend/**
+      - scripts/**
+      - .github/workflows/smoke-demo.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-demo-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  demo-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Package backend artifact
+        working-directory: backend
+        run: mvn -B -DskipTests package
+
+      - name: Allocate smoke port
+        run: |
+          port="$(python3 - <<'PY'
+          import socket
+
+          with socket.socket() as sock:
+              sock.bind(("127.0.0.1", 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
+          echo "PORT=${port}" >> "${GITHUB_ENV}"
+          echo "API_BASE_URL=http://127.0.0.1:${port}" >> "${GITHUB_ENV}"
+
+      - name: Start backend
+        run: |
+          mkdir -p "${RUNNER_TEMP}/ledgerforge-smoke"
+          nohup java -jar backend/target/*.jar > "${RUNNER_TEMP}/ledgerforge-smoke/backend.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/ledgerforge-smoke/backend.pid"
+
+      - name: Run demo smoke scripts
+        run: ./scripts/demo-run.sh
+
+      - name: Upload backend log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-demo-backend-log
+          path: ${{ runner.temp }}/ledgerforge-smoke/backend.log
+          if-no-files-found: ignore
+
+      - name: Print backend log on failure
+        if: failure()
+        run: cat "${RUNNER_TEMP}/ledgerforge-smoke/backend.log"
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [[ -f "${RUNNER_TEMP}/ledgerforge-smoke/backend.pid" ]]; then
+            kill "$(cat "${RUNNER_TEMP}/ledgerforge-smoke/backend.pid")" || true
+          fi

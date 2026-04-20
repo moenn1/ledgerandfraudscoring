@@ -23,8 +23,11 @@ Optional environment variables:
 - `./scripts/seed-demo.sh`: tries to create demo accounts and one payment
 - `./scripts/smoke-test.sh`: health + basic payment API checks
 - `./scripts/demo-run.sh`: runs all of the above in order
+- `./scripts/check-governance-docs.sh`: validates changelog and nearest-doc updates for workflow and code changes
+- `./scripts/check-docs-index.sh`: validates that docs indexes and workflow references match the repository layout
 
 ## Notes
 
 - Scripts are intentionally tolerant while backend endpoints are still evolving.
 - Failed optional API calls are logged and skipped so local iteration stays fast.
+- Governance and docs validation scripts are kept compatible with the default macOS Bash runtime as well as GitHub-hosted runners.
