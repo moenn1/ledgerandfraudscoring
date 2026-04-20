@@ -5,6 +5,7 @@ import com.ledgerforge.payments.account.AccountService;
 import com.ledgerforge.payments.audit.AuditService;
 import com.ledgerforge.payments.common.api.ApiException;
 import com.ledgerforge.payments.fraud.FraudEvaluation;
+import com.ledgerforge.payments.fraud.FraudReason;
 import com.ledgerforge.payments.fraud.FraudScoringService;
 import com.ledgerforge.payments.fraud.ManualReviewService;
 import com.ledgerforge.payments.idempotency.IdempotencyService;
@@ -154,7 +155,7 @@ public class PaymentService {
 
         if (evaluation.decision() == RiskDecision.REJECT) {
             payment.setStatus(PaymentStatus.REJECTED);
-            payment.setFailureReason("Risk score exceeds threshold");
+            payment.setFailureReason(riskReasonSummary(evaluation.reasons()));
             PaymentIntentEntity saved = paymentRepository.save(payment);
             recordMutation(scope, idempotencyKey, fingerprint, saved);
             auditService.append(
@@ -166,7 +167,7 @@ public class PaymentService {
                     Map.of(
                             "riskScore", saved.getRiskScore(),
                             "riskDecision", saved.getRiskDecision().name(),
-                            "reasonCount", evaluation.reasons().size()
+                            "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
                     )
             );
             return saved;
@@ -187,7 +188,7 @@ public class PaymentService {
                     Map.of(
                             "riskScore", saved.getRiskScore(),
                             "riskDecision", saved.getRiskDecision().name(),
-                            "reasonCount", evaluation.reasons().size()
+                            "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
                     )
             );
             return saved;
@@ -211,7 +212,8 @@ public class PaymentService {
                 Map.of(
                         "status", saved.getStatus().name(),
                         "riskScore", saved.getRiskScore(),
-                        "riskDecision", saved.getRiskDecision().name()
+                        "riskDecision", saved.getRiskDecision().name(),
+                        "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
                 )
         );
         return saved;
@@ -504,6 +506,17 @@ public class PaymentService {
 
     private String numToken(Number value) {
         return value == null ? "" : value.toString();
+    }
+
+    private String riskReasonSummary(List<FraudReason> reasons) {
+        if (reasons.isEmpty()) {
+            return "Risk score exceeds threshold";
+        }
+        return reasons.stream()
+                .limit(3)
+                .map(FraudReason::code)
+                .reduce((a, b) -> a + "," + b)
+                .orElse("Risk score exceeds threshold");
     }
 
     private String nullToBlank(String value) {
