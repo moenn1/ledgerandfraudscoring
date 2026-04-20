@@ -24,6 +24,7 @@ Optional environment variables:
 - `./scripts/smoke-test.sh`: health + basic payment API checks
 - `./scripts/demo-run.sh`: runs all of the above in order
 - `./scripts/check-governance-docs.sh`: validates changelog and nearest-doc updates for workflow and code changes
+- `./scripts/check-docs-index.sh`: validates that docs indexes and workflow references match the repository layout
 
 ## Notes
 

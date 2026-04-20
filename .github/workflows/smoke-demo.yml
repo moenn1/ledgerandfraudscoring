@@ -18,6 +18,13 @@ on:
       - scripts/**
       - .github/workflows/smoke-demo.yml
 
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-demo-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   demo-run:
     runs-on: ubuntu-latest
@@ -57,6 +64,14 @@ jobs:
 
       - name: Run demo smoke scripts
         run: ./scripts/demo-run.sh
+
+      - name: Upload backend log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-demo-backend-log
+          path: ${{ runner.temp }}/ledgerforge-smoke/backend.log
+          if-no-files-found: ignore
 
       - name: Print backend log on failure
         if: failure()

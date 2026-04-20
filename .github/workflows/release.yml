@@ -2,13 +2,27 @@ name: release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: Version label to use for manual artifact bundles
+        required: false
+        type: string
   push:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-artifacts:
     runs-on: ubuntu-latest
+    env:
+      WORKFLOW_RELEASE_VERSION: ${{ github.event.inputs.release_version || '' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -25,13 +39,24 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Resolve release metadata
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            release_version="${GITHUB_REF_NAME}"
+          elif [[ -n "${WORKFLOW_RELEASE_VERSION}" ]]; then
+            release_version="${WORKFLOW_RELEASE_VERSION}"
+          else
+            release_version="manual-${GITHUB_RUN_NUMBER}"
+          fi
+          echo "RELEASE_VERSION=${release_version}" >> "${GITHUB_ENV}"
+
       - name: Package backend artifact
         working-directory: backend
         run: mvn -B -DskipTests package
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install --no-fund --no-audit
+        run: npm install --package-lock=false --no-fund --no-audit
 
       - name: Build frontend bundle
         working-directory: frontend
@@ -40,14 +65,19 @@ jobs:
       - name: Assemble release artifacts
         run: |
           mkdir -p artifacts
-          cp backend/target/*.jar artifacts/ledgerforge-backend.jar
-          tar -czf artifacts/ledgerforge-operator-console.tar.gz -C frontend dist
+          cp backend/target/*.jar "artifacts/ledgerforge-backend-${RELEASE_VERSION}.jar"
+          tar -czf "artifacts/ledgerforge-operator-console-${RELEASE_VERSION}.tar.gz" -C frontend dist
+          (
+            cd artifacts
+            sha256sum * > SHA256SUMS.txt
+          )
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ledgerforge-release-artifacts
           path: artifacts/*
+          if-no-files-found: error
 
   publish-release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -65,6 +95,6 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            artifacts/ledgerforge-backend.jar
-            artifacts/ledgerforge-operator-console.tar.gz
+          name: LedgerForge ${{ github.ref_name }}
+          files: artifacts/*
+          generate_release_notes: true

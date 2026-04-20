@@ -6,6 +6,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 
 ### Added
 - GitHub Actions workflows for governance checks, backend test/package validation, frontend build validation, backend demo smoke coverage, and tagged release artifact publishing.
+- A dedicated documentation CI workflow and validation script that keep workflow coverage, docs indexes, and the changelog entrypoint aligned.
 - A repository governance guide that documents workflow ownership, branch naming policy, and release expectations.
 - Initial repository bootstrap with baseline README, architecture docs, and local developer tooling.
 - Operator console data-source guardrails so live payment and ledger APIs remain the source of truth even when metrics or reconciliation endpoints are missing.
@@ -16,6 +17,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 
 ### Changed
 - Repository indexes and script docs now describe the CI/CD workflow suite and governance checker entrypoint.
+- GitHub Actions quality gates now cancel superseded branch runs, preserve backend test reports on failure, and publish release bundles with versioned filenames plus SHA-256 manifests.
 - Frontend operator docs now document hybrid API mode, optional bearer-token configuration, and live refresh behavior after manual-review decisions.
 - Repository-facing docs now use product and implementation language only, without internal workflow references.
 - Payment lifecycle docs now reflect the implemented confirm flow reserving funds, manual-review holds, and cancel guards.

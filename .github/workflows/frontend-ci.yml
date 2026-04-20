@@ -16,6 +16,13 @@ on:
       - frontend/**
       - .github/workflows/frontend-ci.yml
 
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,7 +39,7 @@ jobs:
           node-version: "20"
 
       - name: Install frontend dependencies
-        run: npm install --no-fund --no-audit
+        run: npm install --package-lock=false --no-fund --no-audit
 
       - name: Build frontend bundle
         run: npm run build

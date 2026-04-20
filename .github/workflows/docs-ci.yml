@@ -1,0 +1,45 @@
+name: docs-ci
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - README.md
+      - CHANGELOG.md
+      - docs/**
+      - scripts/check-*.sh
+      - .github/workflows/**
+  push:
+    branches:
+      - main
+      - feature/**
+      - fix/**
+    paths:
+      - README.md
+      - CHANGELOG.md
+      - docs/**
+      - scripts/check-*.sh
+      - .github/workflows/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate changelog and documentation policy
+        run: ./scripts/check-governance-docs.sh
+
+      - name: Validate documentation coverage indexes
+        run: ./scripts/check-docs-index.sh

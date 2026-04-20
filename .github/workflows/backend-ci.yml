@@ -20,6 +20,13 @@ on:
       - .github/workflows/backend-ci.yml
       - .github/workflows/smoke-demo.yml
 
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-and-package:
     runs-on: ubuntu-latest
@@ -39,6 +46,14 @@ jobs:
 
       - name: Run backend tests
         run: mvn -B test
+
+      - name: Upload backend test reports
+        if: failure() && hashFiles('backend/target/surefire-reports/*') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: backend/target/surefire-reports/*
+          if-no-files-found: ignore
 
       - name: Package backend artifact
         run: mvn -B -DskipTests package
