@@ -49,10 +49,10 @@ All notable changes to LedgerForge Payments should be recorded here.
 ### Fixed
 - Local demo seeding and smoke validation scripts now create real UUID-backed accounts, verify payment idempotency, and exercise reserve/capture ledger flows against the live API.
 - Backend payment integration tests now use transactional rollback so idempotency assertions stay isolated across test methods.
-- Concurrent payment-intent creation now collapses duplicate idempotency races onto the committed payment row, while fraud-scoring timeouts persist a `FRAUD_TIMEOUT` signal and route the intent into manual review without duplicating audit or outbox side effects.
+- Concurrent payment-intent creation now reads back the committed payment row after duplicate-key races so callers reuse the winning audit/outbox side-effect set instead of failing on rollback noise.
 - Notification webhook hashing and payload-column mappings now align with the current schema so Hibernate validation and backend test startup succeed.
 - Live manual-review decisions in the operator console now refresh payment and ledger data after the backend response so approved cases reflect the reserved status and posted reserve journal instead of a guessed local transition.
-- Concurrent duplicate payment-create requests now return the winning committed payment instead of bubbling an `UnexpectedRollbackException`, and fraud-scoring timeouts now route the payment into manual review with a persisted `FRAUD_TIMEOUT` signal.
+- Fraud-scoring timeouts now route payments into manual review with a persisted `FRAUD_TIMEOUT` signal, while relay-concurrency and replay coverage verify single-publisher outbox claims and correct reserve/capture/refund journal reconstruction.
 
 ### Documentation Policy
 - Every push must include corresponding documentation updates.

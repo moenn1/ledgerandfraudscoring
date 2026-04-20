@@ -52,9 +52,9 @@ If a downstream step fails after ledger mutation:
 
 ## Verified Coverage
 
-- Concurrent create requests that reuse the same idempotency key now resolve to the single committed payment record instead of surfacing a rollback error to the caller.
+- Concurrent create requests that reuse the same idempotency key now read back the single committed payment record after a duplicate-key race instead of surfacing a rollback error to the caller.
 - Fraud-scoring timeout paths now fall back to manual review, persist a `FRAUD_TIMEOUT` signal, and keep the ledger untouched until an operator decision is applied.
-- Outbox relay lease contention is covered with concurrent integration tests so only one relay worker claims and publishes a due event.
+- Outbox relay lease contention is covered with concurrent integration tests so only one relay worker claims and publishes a due event while the losing worker returns without emitting duplicate side effects.
 - Ledger replay coverage now exercises full payment lifecycle journals, ensuring operator replay views stay correct after reserve, capture, and refund flows.
 
 ## Operational Alerts

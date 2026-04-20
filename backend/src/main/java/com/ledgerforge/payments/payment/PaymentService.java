@@ -26,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
@@ -873,6 +874,9 @@ public class PaymentService {
 
     public PaymentIntentEntity createWithIdempotency(CreatePaymentRequest request, String idempotencyKey, String correlationId) {
         try {
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                return create(request, idempotencyKey, correlationId);
+            }
             return requiresNewTransactionTemplate.execute(status -> create(request, idempotencyKey, correlationId));
         } catch (ExistingPaymentException existing) {
             return existing.payment;

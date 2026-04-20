@@ -77,6 +77,8 @@ class LedgerServiceIntegrationTest {
     void treatsDuplicateReferenceWithSamePayloadAsIdempotent() {
         AccountEntity payer = createAccount("payer-3", "USD");
         AccountEntity payee = createAccount("payee-3", "USD");
+        long baselineJournalCount = journalTransactionRepository.count();
+        long baselineEntryCount = ledgerEntryRepository.count();
 
         CreateJournalRequest request = new CreateJournalRequest(
                 JournalType.PAYMENT,
@@ -91,8 +93,8 @@ class LedgerServiceIntegrationTest {
         JournalResponse second = ledgerService.createJournal(request);
 
         assertThat(second.id()).isEqualTo(first.id());
-        assertThat(journalTransactionRepository.count()).isEqualTo(1L);
-        assertThat(ledgerEntryRepository.count()).isEqualTo(2L);
+        assertThat(journalTransactionRepository.count()).isEqualTo(baselineJournalCount + 1);
+        assertThat(ledgerEntryRepository.count()).isEqualTo(baselineEntryCount + 2);
     }
 
     @Test

@@ -63,6 +63,7 @@ The backend now exposes additive ledger-operations endpoints that keep the immut
   - unbalanced journals
   - mixed-currency journals
   - payments whose persisted status does not match the journal types recorded for that payment
+- Replay coverage is verified against committed reserve, capture, and refund journal sequences so operator recovery views reflect lifecycle money movement rather than inferred payment state.
 
 ### Recovery Flow
 

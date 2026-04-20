@@ -11,6 +11,7 @@ import com.ledgerforge.payments.payment.api.ConfirmPaymentRequest;
 import com.ledgerforge.payments.payment.api.CreatePaymentRequest;
 import com.ledgerforge.payments.payment.api.PaymentAdjustmentRequest;
 import com.ledgerforge.payments.payment.api.RefundPaymentRequest;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -172,12 +173,24 @@ class PaymentControllerIntegrationTest {
 
         String queueResponse = mockMvc.perform(get("/api/fraud/reviews"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].paymentId").value(paymentId))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
 
-        String reviewCaseId = objectMapper.readTree(queueResponse).get(0).get("id").asText();
+        JsonNode reviewCases = objectMapper.readTree(queueResponse);
+        JsonNode matchingReviewCase = null;
+        for (JsonNode reviewCase : reviewCases) {
+            if (paymentId.equals(reviewCase.path("paymentId").asText())) {
+                matchingReviewCase = reviewCase;
+                break;
+            }
+        }
+
+        assertThat(matchingReviewCase)
+                .as("review queue entry for payment %s", paymentId)
+                .isNotNull();
+
+        String reviewCaseId = matchingReviewCase.get("id").asText();
 
         mockMvc.perform(post("/api/fraud/reviews/{id}/decision", reviewCaseId)
                         .contentType(MediaType.APPLICATION_JSON)

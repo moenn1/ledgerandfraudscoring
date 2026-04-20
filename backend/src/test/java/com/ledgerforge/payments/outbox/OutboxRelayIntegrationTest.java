@@ -11,7 +11,10 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.UUID;
@@ -38,11 +41,16 @@ class OutboxRelayIntegrationTest {
     @Autowired
     private OutboxRelayService outboxRelayService;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @MockBean
     private DomainEventPublisher domainEventPublisher;
 
     @Test
     void paymentLifecycle_enqueuesPaymentAndLedgerEvents() {
+        outboxEventRepository.deleteAll();
+
         UUID payerId = createAccount("outbox-payer-1", "USD");
         UUID payeeId = createAccount("outbox-payee-1", "USD");
 
@@ -55,7 +63,9 @@ class OutboxRelayIntegrationTest {
         paymentService.confirm(payment.getId(), null, "outbox-confirm-1", "corr-outbox-flow");
         paymentService.capture(payment.getId(), "outbox-capture-1", "corr-outbox-flow");
 
-        List<OutboxEventEntity> events = outboxEventRepository.findAllByOrderByCreatedAtAsc();
+        List<OutboxEventEntity> events = outboxEventRepository.findAllByOrderByCreatedAtAsc().stream()
+                .filter(event -> "corr-outbox-flow".equals(event.getCorrelationId()))
+                .toList();
         assertThat(events).extracting(OutboxEventEntity::getEventType).containsExactly(
                 "payment.created",
                 "ledger.journal.committed",
@@ -72,6 +82,8 @@ class OutboxRelayIntegrationTest {
 
     @Test
     void relayRetriesFailuresAndPreservesStableEventId() {
+        outboxEventRepository.deleteAll();
+
         UUID payerId = createAccount("outbox-payer-2", "USD");
         UUID payeeId = createAccount("outbox-payee-2", "USD");
 
@@ -81,7 +93,10 @@ class OutboxRelayIntegrationTest {
                 "corr-outbox-retry"
         );
 
-        OutboxEventEntity pending = outboxEventRepository.findAllByOrderByCreatedAtAsc().get(0);
+        OutboxEventEntity pending = outboxEventRepository.findAllByOrderByCreatedAtAsc().stream()
+                .filter(event -> "corr-outbox-retry".equals(event.getCorrelationId()))
+                .findFirst()
+                .orElseThrow();
         doThrow(new IllegalStateException("broker unavailable"))
                 .doNothing()
                 .when(domainEventPublisher)
@@ -112,11 +127,15 @@ class OutboxRelayIntegrationTest {
     }
 
     private UUID createAccount(String ownerId, String currency) {
-        AccountEntity account = new AccountEntity();
-        account.setOwnerId(ownerId);
-        account.setCurrency(currency);
-        account.setStatus(AccountStatus.ACTIVE);
-        return accountRepository.save(account).getId();
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template.execute(status -> {
+            AccountEntity account = new AccountEntity();
+            account.setOwnerId(ownerId);
+            account.setCurrency(currency);
+            account.setStatus(AccountStatus.ACTIVE);
+            return accountRepository.save(account).getId();
+        });
     }
 
     private String masked(String value) {

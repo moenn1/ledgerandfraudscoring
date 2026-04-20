@@ -27,7 +27,7 @@ stateDiagram-v2
     RISK_SCORING --> APPROVED: score < threshold
     RISK_SCORING --> REJECTED: score >= reject threshold
     RISK_SCORING --> RISK_SCORING: manual review pending
-    RISK_SCORING --> CREATED: risk timeout + retry policy
+    RISK_SCORING --> RISK_SCORING: fraud timeout -> manual review fallback
     APPROVED --> RESERVED: reserve ledger entries
     RESERVED --> CAPTURED: capture confirmed
     RESERVED --> REVERSED: compensating reversal
@@ -79,4 +79,5 @@ stateDiagram-v2
 - Same idempotency key with same payload returns original response.
 - Same key with different payload returns conflict.
 - Concurrent create attempts with the same idempotency key must converge on the committed payment intent and must not duplicate audit or outbox records.
+- A fraud-scoring timeout keeps the payment in `RISK_SCORING`, persists a `FRAUD_TIMEOUT` signal, and opens the manual-review path instead of mutating ledger balances.
 - All mutation endpoints should persist idempotency record and response hash.
