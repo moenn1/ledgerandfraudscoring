@@ -1,0 +1,52 @@
+name: Container Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  postgres-smoke:
+    name: PostgreSQL Backend Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: ledgerforge
+          POSTGRES_USER: ledgerforge
+          POSTGRES_PASSWORD: ledgerforge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ledgerforge -d ledgerforge"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Start backend against PostgreSQL and verify health
+        run: bash scripts/ci/postgres-smoke.sh
+
+      - name: Upload backend smoke log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-smoke-log
+          path: backend-smoke.log
+          if-no-files-found: ignore

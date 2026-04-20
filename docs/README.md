@@ -9,5 +9,6 @@ This folder contains the implementation and operations reference for LedgerForge
 - `ledger-invariants.md`: accounting invariants and reconciliation checks
 - `fraud-scoring.md`: fraud engine design, rules, and review workflow
 - `failure-scenarios.md`: failure modes, retries, idempotency, and compensation
+- `ci-quality-gates.md`: GitHub Actions workflow coverage, policy gates, and manual PostgreSQL smoke checks
 - `observability-security.md`: telemetry, auditability, and security controls
 - `runbook-local-demo.md`: local setup, demo script, and verification checklist
