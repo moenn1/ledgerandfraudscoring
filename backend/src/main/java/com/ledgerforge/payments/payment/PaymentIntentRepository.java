@@ -14,6 +14,8 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntentEnti
 
     Optional<PaymentIntentEntity> findByIdempotencyKey(String idempotencyKey);
 
+    List<PaymentIntentEntity> findAllByOrderByCreatedAtAsc();
+
     List<PaymentIntentEntity> findAllByOrderByCreatedAtDesc();
 
     long countByPayerAccountIdAndCreatedAtAfter(UUID payerAccountId, Instant after);
