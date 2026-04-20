@@ -145,6 +145,9 @@ public class PaymentService {
         ensureStatus(payment, PaymentStatus.CREATED, "confirm");
 
         AccountEntity payer = accountService.getOrFail(payment.getPayerAccountId());
+        AccountEntity payee = accountService.getOrFail(payment.getPayeeAccountId());
+        accountService.requirePaymentParticipationAllowed(payer, "payer");
+        accountService.requirePaymentParticipationAllowed(payee, "payee");
 
         payment.setStatus(PaymentStatus.VALIDATED);
         payment.setStatus(PaymentStatus.RISK_SCORING);
@@ -233,6 +236,10 @@ public class PaymentService {
             return payment;
         }
         ensureStatus(payment, PaymentStatus.RESERVED, "capture");
+        AccountEntity payer = accountService.getOrFail(payment.getPayerAccountId());
+        AccountEntity payee = accountService.getOrFail(payment.getPayeeAccountId());
+        accountService.requirePaymentParticipationAllowed(payer, "payer");
+        accountService.requirePaymentParticipationAllowed(payee, "payee");
 
         AccountEntity holdingAccount = accountService.getSystemHoldingAccount(payment.getCurrency());
         AccountEntity revenueAccount = accountService.getSystemRevenueAccount(payment.getCurrency());
@@ -396,6 +403,8 @@ public class PaymentService {
 
         AccountEntity payer = accountService.getOrFail(payerId);
         AccountEntity payee = accountService.getOrFail(payeeId);
+        accountService.requirePaymentParticipationAllowed(payer, "payer");
+        accountService.requirePaymentParticipationAllowed(payee, "payee");
 
         if (!payer.getCurrency().equals(currency) || !payee.getCurrency().equals(currency)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Account currencies must match payment currency");

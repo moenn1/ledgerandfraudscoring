@@ -99,6 +99,11 @@ public class ManualReviewService {
 
         JournalTransactionEntity reserveJournal = null;
         if (request.decision() == ReviewDecisionRequest.ReviewDecision.APPROVE) {
+            AccountEntity payer = accountService.getOrFail(payment.getPayerAccountId());
+            AccountEntity payee = accountService.getOrFail(payment.getPayeeAccountId());
+            accountService.requirePaymentParticipationAllowed(payer, "payer");
+            accountService.requirePaymentParticipationAllowed(payee, "payee");
+
             reviewCase.setStatus(ReviewCaseStatus.APPROVED);
             payment.setStatus(PaymentStatus.APPROVED);
             payment.setRiskDecision(RiskDecision.APPROVE);

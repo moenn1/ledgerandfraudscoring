@@ -190,7 +190,7 @@ public class LedgerService {
         }
 
         validateLedgerInvariants(requestedLegs);
-        validateAccounts(requestedLegs);
+        validateAccounts(request.type(), requestedLegs);
 
         JournalTransactionEntity journal = new JournalTransactionEntity();
         journal.setType(request.type());
@@ -369,7 +369,7 @@ public class LedgerService {
         }
     }
 
-    private void validateAccounts(List<LedgerLeg> legs) {
+    private void validateAccounts(JournalType journalType, List<LedgerLeg> legs) {
         Set<UUID> accountIds = legs.stream().map(LedgerLeg::accountId).collect(Collectors.toSet());
         Map<UUID, AccountEntity> accountsById = accountRepository.findAllById(accountIds).stream()
                 .collect(Collectors.toMap(AccountEntity::getId, Function.identity()));
@@ -381,7 +381,13 @@ public class LedgerService {
 
         for (LedgerLeg leg : legs) {
             AccountEntity account = accountsById.get(leg.accountId());
-            if (account.getStatus() != AccountStatus.ACTIVE) {
+            if (account.getStatus() == AccountStatus.FROZEN && !allowsFrozenAccountPosting(journalType)) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "Frozen account " + account.getId() + " cannot be posted to by " + journalType.name() + " journals"
+                );
+            }
+            if (account.getStatus() != AccountStatus.ACTIVE && account.getStatus() != AccountStatus.FROZEN) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Inactive account cannot be posted to: " + account.getId());
             }
             if (!account.getCurrency().equals(leg.currency())) {
@@ -391,6 +397,10 @@ public class LedgerService {
                 );
             }
         }
+    }
+
+    private boolean allowsFrozenAccountPosting(JournalType journalType) {
+        return journalType == JournalType.REFUND || journalType == JournalType.REVERSAL;
     }
 
     private LedgerEntryEntity toLedgerEntry(JournalTransactionEntity journal, LedgerLeg leg) {

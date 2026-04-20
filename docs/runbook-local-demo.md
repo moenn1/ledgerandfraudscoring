@@ -42,14 +42,17 @@ flowchart LR
 5. Capture payment and inspect ledger entries.
 6. Query account balances and show projection correctness.
 7. Trigger high-risk payment and show manual review queue.
-8. Approve/reject review case and verify state transitions.
-9. Run reconciliation endpoint and show no mismatches.
+8. Freeze the payer or payee account and show create/confirm/capture/manual-review approval guardrails.
+9. Unwind a reserved payment with `cancel` and show the reversal journal while the account remains frozen.
+10. Run reconciliation endpoint and show no mismatches.
 
 ## Verification Checklist
 
 - Journal entries balance to zero for each transaction.
 - Duplicate `POST /payments` with same key is idempotent.
 - Duplicate `capture` does not double-charge.
+- Frozen accounts block new create/confirm/capture/manual-review approval attempts.
+- Reserved or captured payments can still be unwound through reversal/refund journals while an account is frozen.
 - Audit timeline includes every mutation.
 - Fraud decisions include reason codes.
 - Dashboard reflects ledger and payment state consistently.

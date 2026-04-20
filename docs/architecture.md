@@ -6,9 +6,16 @@ LedgerForge Payments is a local-first fintech backend that processes payments th
 2. Fraud service computes real-time risk.
 3. Orchestrator decides approve/review/reject.
 4. Ledger writes immutable balanced entries for reserve/capture/refund/reversal.
-5. Audit and events are emitted for operator views and downstream consumers.
+5. Account freeze controls stop new money movement without mutating prior ledger history.
+6. Audit and events are emitted for operator views and downstream consumers.
 
 The ledger is the source of truth. Balances are projections from immutable entries.
+
+Operational control note:
+
+- `ACTIVE` accounts can participate in normal create, confirm, capture, and manual-review approval flows.
+- `FROZEN` accounts block new outward payment progression and manual-review approvals.
+- `FROZEN` accounts can still participate in `REFUND` and `REVERSAL` journals so operators can unwind exposure without rewriting history.
 
 ## Modular Monolith Structure
 

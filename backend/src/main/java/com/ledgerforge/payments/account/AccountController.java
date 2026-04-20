@@ -3,8 +3,11 @@ package com.ledgerforge.payments.account;
 import com.ledgerforge.payments.account.api.AccountBalanceResponse;
 import com.ledgerforge.payments.account.api.AccountResponse;
 import com.ledgerforge.payments.account.api.CreateAccountRequest;
+import com.ledgerforge.payments.account.api.UpdateAccountStatusRequest;
+import com.ledgerforge.payments.common.web.CorrelationIds;
 import com.ledgerforge.payments.ledger.LedgerEntryResponse;
 import com.ledgerforge.payments.ledger.LedgerService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -41,6 +44,20 @@ public class AccountController {
     @GetMapping("/{id}")
     public AccountResponse get(@PathVariable UUID id) {
         return AccountResponse.from(accountService.get(id));
+    }
+
+    @PostMapping("/{id}/status")
+    public AccountResponse updateStatus(@PathVariable UUID id,
+                                        @Valid @RequestBody UpdateAccountStatusRequest request,
+                                        HttpServletRequest httpRequest) {
+        return AccountResponse.from(
+                accountService.updateStatus(
+                        id,
+                        request.status(),
+                        request.reason(),
+                        CorrelationIds.resolve(httpRequest)
+                )
+        );
     }
 
     @GetMapping("/{id}/balance")

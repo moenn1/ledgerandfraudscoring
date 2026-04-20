@@ -11,12 +11,14 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Derived operator investigation views for payment audit trails, retry corridors, and reconciliation repair playbooks built from live payment, ledger, review, and anomaly data.
 - A dedicated operator analytics surface for fraud trends, risk-score bands, settlement coverage, anomaly rollups, and backlog-aging reports derived from live payments and ledger state.
 - Ledger replay and verification endpoints for rebuilding account projections from immutable entries and flagging broken journals or payment lifecycle mismatches.
+- Account status controls via `POST /api/accounts/{id}/status`, with audit events for freeze and unfreeze actions.
 
 ### Changed
 - Frontend operator docs now document hybrid API mode, optional bearer-token configuration, and live refresh behavior after manual-review decisions.
 - Repository-facing docs now use product and implementation language only, without internal workflow references.
 - Payment lifecycle docs now reflect the implemented confirm flow reserving funds, manual-review holds, and cancel guards.
 - Ledger invariants documentation now includes the operator recovery flow for `/api/ledger/replay/accounts/{accountId}` and `/api/ledger/verification`.
+- Frozen payer and payee accounts now block payment create, confirm, capture, and manual-review approval paths, while recovery journals remain available for refunds and reversals.
 
 ### Fixed
 - Backend payment integration tests now use transactional rollback so idempotency assertions stay isolated across test methods.
