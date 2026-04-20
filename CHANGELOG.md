@@ -5,6 +5,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 ## Unreleased
 
 ### Added
+- Transactional outbox delivery for immutable audit events, including scheduled relay processing, capped exponential backoff, dead-letter handling, poison-message short-circuiting, and admin inspection/requeue endpoints.
 - GitHub Actions workflows for branch CI and an optional PostgreSQL-backed backend smoke check, covering docs policy gates, backend `mvn verify`, frontend build checks, and failure artifacts.
 - Repo-owned CI helper scripts for validating markdown and documented repo paths, enforcing changelog plus nearest-doc updates, and smoke-checking backend startup against PostgreSQL.
 - Initial repository bootstrap with baseline README, architecture docs, and local developer tooling.
@@ -16,6 +17,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - A documentation governance reference, installable git pre-push hook, and CODEOWNERS coverage for changelog, docs, API examples, and delivery guardrails.
 
 ### Changed
+- Architecture, observability, and failure-handling docs now describe the implemented transactional outbox contract and the live `/api/admin/outbox` operator workflow.
 - Repository docs now describe the GitHub Actions quality gates and the local commands that mirror those checks before push.
 - Frontend operator docs now document hybrid API mode, optional bearer-token configuration, and live refresh behavior after manual-review decisions.
 - Repository-facing docs now use product and implementation language only, without internal workflow references.

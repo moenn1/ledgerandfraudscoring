@@ -12,12 +12,14 @@
   - fraud timeout/error rates
   - reconciliation mismatches
   - outbox queue depth and lag
+  - outbox dead-letter count and oldest dead-letter age
 
 ### Trace Propagation
 
 - Generate `correlation_id` at ingress if missing.
 - Propagate through API -> fraud -> ledger -> outbox.
 - Include correlation id in audit events and operator timeline payloads.
+- Use the outbox message id as the downstream delivery key when wiring broker or webhook publishers.
 
 ### Audit Event Standard
 
@@ -34,6 +36,14 @@ Every financial mutation should emit an immutable event:
   "createdAt": "2026-04-20T16:00:00Z"
 }
 ```
+
+Outbox operations are exposed through:
+
+- `GET /api/admin/outbox/messages`
+- `POST /api/admin/outbox/process`
+- `POST /api/admin/outbox/messages/{id}/requeue`
+
+Operators should use these endpoints together with audit trails to inspect relay failures, distinguish poison messages from transient delivery issues, and requeue only after the downstream sink is healthy.
 
 ## Security
 

@@ -19,6 +19,7 @@ The recommended MVP implementation is a modular monolith with explicit boundarie
 - `fraud`: scoring, rules, review cases
 - `orchestrator`: flow coordination and compensation
 - `audit`: immutable event trail for compliance and debugging
+- `outbox`: transactional event delivery, retry scheduling, and dead-letter controls
 - `admin`: operator-facing reporting and reconciliation endpoints
 
 ## High-Level Component Diagram
@@ -33,7 +34,7 @@ flowchart LR
     Ledger --> DB[(PostgreSQL)]
     Fraud --> DB
     Audit --> DB
-    Orch --> Outbox[Transactional Outbox]
+    Audit --> Outbox[Transactional Outbox]
     Outbox --> Bus[(Kafka or RabbitMQ)]
     Bus --> Proj[Read Model Projections]
     Proj --> Admin[Operator Dashboard APIs]
@@ -61,6 +62,7 @@ sequenceDiagram
     participant F as Fraud
     participant L as Ledger
     participant A as Audit
+    participant X as Outbox Relay
     participant B as Event Bus
 
     C->>P: POST /payments (idempotency-key)
@@ -70,16 +72,16 @@ sequenceDiagram
     alt decision = APPROVE
         O->>L: reserve/capture journals
         L-->>O: balanced entries persisted
-        O->>A: append audit events
-        O->>B: publish payment.approved, ledger.entry.created
+        O->>A: append audit events + enqueue outbox
+        X->>B: publish payment.approved, ledger.entry.created
         O-->>P: approved/captured response
     else decision = REVIEW
-        O->>A: create review case
-        O->>B: publish review.required
+        O->>A: create review case + enqueue outbox
+        X->>B: publish review.required
         O-->>P: pending_review response
     else decision = REJECT
-        O->>A: append reject reason
-        O->>B: publish fraud.flagged, payment.failed
+        O->>A: append reject reason + enqueue outbox
+        X->>B: publish fraud.flagged, payment.failed
         O-->>P: rejected response
     end
 ```
@@ -89,4 +91,5 @@ sequenceDiagram
 - Start as one service with module boundaries and separate packages.
 - Persist all financial state in PostgreSQL with Flyway/Liquibase migrations.
 - Use Redis for idempotency key cache and velocity counters (optional in MVP).
-- Introduce async bus and outbox in phase 2 for higher throughput and decoupling.
+- The backend now persists a transactional outbox and relays immutable audit events asynchronously with retry and dead-letter handling.
+- External brokers and additional consumer projections remain a phase 2 extension behind the same outbox contract.

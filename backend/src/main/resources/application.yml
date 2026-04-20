@@ -32,3 +32,13 @@ management:
 
 server:
   port: ${PORT:8080}
+
+ledgerforge:
+  outbox:
+    destination: ${OUTBOX_DESTINATION:ledgerforge.audit-events}
+    relay-enabled: ${OUTBOX_RELAY_ENABLED:true}
+    relay-batch-size: ${OUTBOX_RELAY_BATCH_SIZE:25}
+    relay-delay-ms: ${OUTBOX_RELAY_DELAY_MS:5000}
+    max-attempts: ${OUTBOX_MAX_ATTEMPTS:5}
+    base-delay-ms: ${OUTBOX_BASE_DELAY_MS:5000}
+    max-delay-ms: ${OUTBOX_MAX_DELAY_MS:300000}

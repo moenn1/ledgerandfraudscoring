@@ -5,6 +5,7 @@ LedgerForge Payments is a local-first fintech demo platform for real-time paymen
 ## Planned MVP
 
 - Spring Boot backend for accounts, payments, ledger, fraud, audit, and reporting
+- Transactional outbox delivery with retry and dead-letter controls for immutable platform events
 - React operator dashboard for payment review and reconciliation
 - PostgreSQL-backed immutable ledger model
 - Idempotent payment APIs with real-time fraud scoring
@@ -28,6 +29,7 @@ LedgerForge Payments is a local-first fintech demo platform for real-time paymen
 ## Documentation
 
 - `docs/README.md`: documentation index
+- `docs/event-delivery.md`: transactional outbox policy, retry controls, and dead-letter workflows
 - `docs/ci-quality-gates.md`: GitHub Actions jobs, docs and changelog policy checks, and manual compose smoke guidance
 - `docs/documentation-governance.md`: canonical doc ownership, update expectations, and changelog rules
 - `scripts/README.md`: local scripts plus CI helper command reference
