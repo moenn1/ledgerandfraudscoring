@@ -16,7 +16,12 @@ else
   BASE_COMMIT="${EMPTY_TREE}"
 fi
 
-mapfile -t changed_files < <(git diff --name-only "${BASE_COMMIT}"...HEAD)
+changed_files=()
+while IFS= read -r file_path; do
+  if [[ -n "${file_path}" ]]; then
+    changed_files+=("${file_path}")
+  fi
+done < <(git diff --name-only "${BASE_COMMIT}"...HEAD)
 
 if [[ ${#changed_files[@]} -eq 0 ]]; then
   echo "No committed file changes detected."

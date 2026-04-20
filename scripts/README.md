@@ -30,3 +30,4 @@ Optional environment variables:
 
 - Scripts are intentionally tolerant while backend endpoints are still evolving.
 - Failed optional API calls are logged and skipped so local iteration stays fast.
+- Governance and docs validation scripts are kept compatible with the default macOS Bash runtime as well as GitHub-hosted runners.
