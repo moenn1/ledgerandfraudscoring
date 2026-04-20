@@ -16,6 +16,15 @@ LedgerForge Payments is a local-first fintech demo platform for real-time paymen
 - `frontend/` React operator dashboard
 - `docs/` architecture, API, and operations notes
 
+## Delivery Controls
+
+- `.github/workflows/governance.yml`: changelog and documentation policy checks
+- `.github/workflows/backend-ci.yml`: backend test and package validation
+- `.github/workflows/frontend-ci.yml`: frontend dependency install and build validation
+- `.github/workflows/smoke-demo.yml`: backend-in-process smoke coverage through the local demo scripts
+- `.github/workflows/release.yml`: tagged backend/frontend artifact publishing
+- `docs/repository-governance.md`: workflow ownership, branch policy, and release expectations
+
 ## Status
 
 The repository is being built out as the LedgerForge platform, with ongoing delivery across ledger, payments, fraud, and operator workflows.

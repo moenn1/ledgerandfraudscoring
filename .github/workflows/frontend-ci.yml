@@ -1,0 +1,38 @@
+name: frontend-ci
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - frontend/**
+      - .github/workflows/frontend-ci.yml
+  push:
+    branches:
+      - main
+      - feature/**
+      - fix/**
+    paths:
+      - frontend/**
+      - .github/workflows/frontend-ci.yml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install frontend dependencies
+        run: npm install --no-fund --no-audit
+
+      - name: Build frontend bundle
+        run: npm run build

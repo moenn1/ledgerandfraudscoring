@@ -23,6 +23,7 @@ Optional environment variables:
 - `./scripts/seed-demo.sh`: tries to create demo accounts and one payment
 - `./scripts/smoke-test.sh`: health + basic payment API checks
 - `./scripts/demo-run.sh`: runs all of the above in order
+- `./scripts/check-governance-docs.sh`: validates changelog and nearest-doc updates for workflow and code changes
 
 ## Notes
 

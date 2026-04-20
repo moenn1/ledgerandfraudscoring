@@ -1,0 +1,70 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Package backend artifact
+        working-directory: backend
+        run: mvn -B -DskipTests package
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-fund --no-audit
+
+      - name: Build frontend bundle
+        working-directory: frontend
+        run: npm run build
+
+      - name: Assemble release artifacts
+        run: |
+          mkdir -p artifacts
+          cp backend/target/*.jar artifacts/ledgerforge-backend.jar
+          tar -czf artifacts/ledgerforge-operator-console.tar.gz -C frontend dist
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledgerforge-release-artifacts
+          path: artifacts/*
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-artifacts
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ledgerforge-release-artifacts
+          path: artifacts
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/ledgerforge-backend.jar
+            artifacts/ledgerforge-operator-console.tar.gz

@@ -325,8 +325,8 @@ function buildRollup<T>(items: T[], keySelector: (item: T) => string): RollupIte
     .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
 }
 
-function groupCounts<T>(items: T[], keySelector: (item: T) => string): Map<string, number> {
-  const counts = new Map<string, number>();
+function groupCounts<T, K extends string>(items: T[], keySelector: (item: T) => K): Map<K, number> {
+  const counts = new Map<K, number>();
 
   for (const item of items) {
     const key = keySelector(item);
@@ -336,8 +336,8 @@ function groupCounts<T>(items: T[], keySelector: (item: T) => string): Map<strin
   return counts;
 }
 
-function groupItems<T>(items: T[], keySelector: (item: T) => string): Map<string, T[]> {
-  const groups = new Map<string, T[]>();
+function groupItems<T, K extends string>(items: T[], keySelector: (item: T) => K): Map<K, T[]> {
+  const groups = new Map<K, T[]>();
 
   for (const item of items) {
     const key = keySelector(item);
