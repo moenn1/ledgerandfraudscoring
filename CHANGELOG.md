@@ -21,6 +21,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Account status controls via `POST /api/accounts/{id}/status`, with audit events for freeze/unfreeze actions.
 - Settlement batch and payout APIs that schedule captured payments onto the next cutoff, aggregate them into immutable batches, and execute ledger-backed payouts into a clearing account.
 - A transactional outbox with lease-based relay delivery, durable payment/ledger/settlement event envelopes, and a viewer-scoped `/api/events/outbox` inspection endpoint.
+- Kafka-backed broker publishing for outbox events, including consumer deduplication receipts, dead-letter auditing, and an async notification consumer workflow for `payment.*` events.
 - Event delivery documentation covering the outbox contract, replay-safe semantics, and relay configuration knobs.
 - A local `scripts/generate-operator-token.py` helper so demo, smoke, and frontend flows can mint bearer tokens against the secured backend without an external identity provider.
 - Field-level data-protection controls for webhook secrets, operator/payment responses, and outbox inspection surfaces, including encrypted webhook signing-secret storage and masked replay identifiers.
@@ -41,6 +42,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Account balance and ledger replay flows are now currency-aware; multi-currency accounts must pass an explicit `currency` query parameter for projection and replay requests.
 - Frozen payer/payee accounts now block create, confirm, capture, and manual-review approval flows while still allowing operator recovery journals for reversal, refund, and chargeback actions.
 - Payment responses now expose settlement cutoff and batch metadata, while the operator docs include the settlement and payout runner workflow.
+- Webhook delivery fan-out now shifts behind the broker when Kafka is enabled, while the direct in-process path remains available for fast local H2 runs.
 - Repository-facing docs now use product and implementation language only, without internal workflow references.
 
 ### Fixed

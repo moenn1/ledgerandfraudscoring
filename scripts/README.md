@@ -21,6 +21,8 @@ Optional environment variables:
 - `SMOKE_NAMESPACE` to group objects created by `smoke-test.sh`
 - `LEDGERFORGE_AUTH_HMAC_SECRET` to override the local JWT signing secret
 - `LEDGERFORGE_DATA_PROTECTION_KEY` to override the local field-encryption key used for persisted webhook secrets
+- `LEDGERFORGE_KAFKA_ENABLED=true` to route outbox relay publishes and notification fan-out through Kafka
+- `LEDGERFORGE_KAFKA_BOOTSTRAP_SERVERS` to override the Kafka broker address (default: `localhost:9092`)
 - `OPERATOR_SUBJECT` for the generated local operator token subject
 - `OPERATOR_ROLE` for the generated local operator token role (defaults to `ADMIN`)
 - `OPERATOR_TOKEN` to supply a pre-generated bearer token instead of minting one in-script
@@ -43,4 +45,5 @@ Optional environment variables:
 - `smoke-test.sh` is intended to fail loudly when the current API contract regresses.
 - The API helpers automatically attach an `Authorization: Bearer ...` header using either `OPERATOR_TOKEN` or a token minted by `generate-operator-token.py`.
 - The backend can run against H2 with no Docker, or against PostgreSQL with `SPRING_PROFILES_ACTIVE=postgres`.
+- To exercise async broker workflows locally, start `./scripts/dev-up.sh --extended` and run the backend with `LEDGERFORGE_KAFKA_ENABLED=true`.
 - Shared environments should override both `LEDGERFORGE_AUTH_HMAC_SECRET` and `LEDGERFORGE_DATA_PROTECTION_KEY`; the defaults are for local demos only.

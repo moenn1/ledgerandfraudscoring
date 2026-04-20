@@ -38,6 +38,7 @@ This mode requires no Docker and is the quickest path for UI and API iteration.
 2. Start the backend with the PostgreSQL profile:
    - `cd backend`
    - `SPRING_PROFILES_ACTIVE=postgres mvn spring-boot:run`
+   - to exercise broker-driven event delivery: `LEDGERFORGE_KAFKA_ENABLED=true SPRING_PROFILES_ACTIVE=postgres mvn spring-boot:run`
 3. Start the frontend:
    - `export VITE_API_BEARER_TOKEN="$(./scripts/generate-operator-token.py --subject operator.admin@ledgerforge.local --role ADMIN)"`
    - `cd frontend`
@@ -74,6 +75,7 @@ Default ports:
 - `docs/api-contracts.md`: contract artifacts, versioning rules, and compatibility expectations
 - `docs/runbook-local-demo.md`: end-to-end demo walkthrough
 - `docs/local-api-requests.md`: concrete `curl` examples for local runs
+- `docs/event-delivery.md`: outbox, Kafka relay, and consumer workflow details
 - `docs/observability-security.md`: security boundaries, audit expectations, and webhook signature notes
 - `scripts/README.md`: script configuration and command reference
 - `postman/README.md`: collection/environment import flow

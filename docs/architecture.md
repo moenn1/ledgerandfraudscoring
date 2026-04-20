@@ -8,7 +8,7 @@ LedgerForge Payments is a local-first fintech backend that processes payments th
 4. Ledger writes immutable balanced entries for reserve/capture/refund/reversal/chargeback.
 5. Account freeze controls block new reserve/capture money movement while still permitting operator recovery journals.
 6. Audit events, immutable payment adjustment history, and transactional outbox rows are emitted for operator views and downstream consumers.
-7. Payment lifecycle notifications fan out into signed webhook delivery records with callback acknowledgements tracked outside the ledger.
+7. Payment lifecycle notifications fan out from brokered payment events into signed webhook delivery records with callback acknowledgements tracked outside the ledger.
 
 The ledger is the source of truth. Balances are projections from immutable entries.
 
@@ -86,8 +86,8 @@ sequenceDiagram
         O->>L: reserve/capture journals
         L-->>O: balanced entries persisted
         O->>A: append audit events
-        O->>N: enqueue signed delivery records
         O->>B: publish payment.reserved, ledger.journal.committed
+        B->>N: enqueue signed delivery records
         O-->>P: approved/captured response
     else decision = REVIEW
         O->>A: create review case
@@ -105,5 +105,6 @@ sequenceDiagram
 - Start as one service with module boundaries and separate packages.
 - Persist all financial state in PostgreSQL with Flyway/Liquibase migrations.
 - Use Redis for idempotency key cache and velocity counters where operationally useful.
-- The current implementation uses a database-backed outbox plus a scheduled relay. Future deployments can replace the default publisher with Kafka, RabbitMQ, or broader webhook fan-out without moving source-of-truth writes out of the local transaction boundary.
+- The current implementation uses a database-backed outbox plus a scheduled relay, with optional Kafka transport for asynchronous consumer workflows and dead-letter handling.
+- Payment webhook fan-out can run either through Kafka-backed consumers or the direct in-process fallback, but both paths still originate from ledger-safe outbox writes.
 - Webhook callbacks can acknowledge or reject deliveries, but they do not mutate ledger balances directly.

@@ -42,13 +42,13 @@ public class KafkaBrokerConfig {
     }
 
     @Bean(name = "ledgerforgeKafkaListenerContainerFactory")
-    public ConcurrentKafkaListenerContainerFactory<String, String> ledgerforgeKafkaListenerContainerFactory(
+    public ConcurrentKafkaListenerContainerFactory<Object, Object> ledgerforgeKafkaListenerContainerFactory(
             ConcurrentKafkaListenerContainerFactoryConfigurer configurer,
-            ConsumerFactory<String, String> consumerFactory,
-            KafkaTemplate<String, String> kafkaTemplate,
+            ConsumerFactory<Object, Object> consumerFactory,
+            KafkaTemplate<Object, Object> kafkaTemplate,
             KafkaBrokerProperties properties
     ) {
-        ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        ConcurrentKafkaListenerContainerFactory<Object, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
         configurer.configure(factory, consumerFactory);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
 
@@ -69,11 +69,11 @@ public class KafkaBrokerConfig {
     }
 
     @Bean(name = "ledgerforgeDltListenerContainerFactory")
-    public ConcurrentKafkaListenerContainerFactory<String, String> ledgerforgeDltListenerContainerFactory(
+    public ConcurrentKafkaListenerContainerFactory<Object, Object> ledgerforgeDltListenerContainerFactory(
             ConcurrentKafkaListenerContainerFactoryConfigurer configurer,
-            ConsumerFactory<String, String> consumerFactory
+            ConsumerFactory<Object, Object> consumerFactory
     ) {
-        ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        ConcurrentKafkaListenerContainerFactory<Object, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
         configurer.configure(factory, consumerFactory);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
         factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(0L, 0L)));
