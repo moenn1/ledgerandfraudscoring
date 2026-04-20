@@ -1,0 +1,102 @@
+name: Performance Benchmarks
+
+on:
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Start backend
+        run: |
+          mkdir -p tmp
+          cd backend
+          mvn -B spring-boot:run > ../tmp/backend-benchmark.log 2>&1 &
+          echo $! > ../tmp/backend-benchmark.pid
+
+      - name: Wait for backend
+        env:
+          API_BASE_URL: http://127.0.0.1:8080
+          TIMEOUT_SECONDS: "120"
+        run: bash scripts/wait-for-backend.sh
+
+      - name: Seed benchmark dataset
+        env:
+          API_BASE_URL: http://127.0.0.1:8080
+        run: |
+          python3 scripts/perf/benchmark_suite.py seed \
+            --api-base-url "$API_BASE_URL" \
+            --output tmp/perf/seed-state.json \
+            --captured-payments 36 \
+            --refunded-payments 8 \
+            --review-payments 12
+
+      - name: Run benchmark suite
+        env:
+          API_BASE_URL: http://127.0.0.1:8080
+        run: |
+          python3 scripts/perf/benchmark_suite.py run \
+            --api-base-url "$API_BASE_URL" \
+            --state-file tmp/perf/seed-state.json \
+            --output tmp/perf/results.json \
+            --requests 20 \
+            --warmup 2 \
+            --concurrency 4 \
+            --thresholds scripts/perf/thresholds.example.json
+
+      - name: Publish benchmark summary
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          path = Path("tmp/perf/results.json")
+          print("## LedgerForge performance benchmarks")
+          if not path.exists():
+              print("")
+              print("Benchmark results were not generated.")
+              raise SystemExit(0)
+
+          payload = json.loads(path.read_text())
+          print("")
+          print("| Scenario | Requests | Errors | p95 (ms) | Throughput (rps) |")
+          print("| --- | ---: | ---: | ---: | ---: |")
+          for result in payload.get("results", []):
+              print(
+                  f"| {result['name']} | {result['requests']} | {result['failureCount']} | "
+                  f"{result['latencyMs']['p95']} | {result['throughputRps']} |"
+              )
+          if payload.get("thresholdsApplied"):
+              status = "passed" if payload.get("thresholdsPassed") else "failed"
+              print("")
+              print(f"Threshold evaluation {status}.")
+          PY
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledgerforge-performance-benchmarks
+          path: |
+            tmp/perf/seed-state.json
+            tmp/perf/results.json
+            tmp/backend-benchmark.log
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f tmp/backend-benchmark.pid ]; then
+            kill "$(cat tmp/backend-benchmark.pid)" || true
+          fi

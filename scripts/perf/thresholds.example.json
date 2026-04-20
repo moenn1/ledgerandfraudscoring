@@ -1,0 +1,52 @@
+{
+  "payment_create": {
+    "maxP95Ms": 1000,
+    "maxErrorRate": 0.0,
+    "minThroughputRps": 4.0
+  },
+  "payment_confirm": {
+    "maxP95Ms": 1500,
+    "maxErrorRate": 0.0,
+    "minThroughputRps": 3.0
+  },
+  "fraud_review_confirm": {
+    "maxP95Ms": 1500,
+    "maxErrorRate": 0.0,
+    "minThroughputRps": 3.0
+  },
+  "payment_capture": {
+    "maxP95Ms": 1500,
+    "maxErrorRate": 0.0,
+    "minThroughputRps": 3.0
+  },
+  "payment_refund": {
+    "maxP95Ms": 1500,
+    "maxErrorRate": 0.0,
+    "minThroughputRps": 3.0
+  },
+  "operator_payments_list": {
+    "maxP95Ms": 1000,
+    "maxErrorRate": 0.0,
+    "minThroughputRps": 6.0
+  },
+  "operator_review_queue": {
+    "maxP95Ms": 1000,
+    "maxErrorRate": 0.0,
+    "minThroughputRps": 6.0
+  },
+  "operator_payment_ledger": {
+    "maxP95Ms": 1000,
+    "maxErrorRate": 0.0,
+    "minThroughputRps": 6.0
+  },
+  "ledger_account_replay": {
+    "maxP95Ms": 1500,
+    "maxErrorRate": 0.0,
+    "minThroughputRps": 4.0
+  },
+  "ledger_verification": {
+    "maxP95Ms": 1500,
+    "maxErrorRate": 0.0,
+    "minThroughputRps": 4.0
+  }
+}

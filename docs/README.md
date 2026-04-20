@@ -10,4 +10,5 @@ This folder contains the implementation and operations reference for LedgerForge
 - `fraud-scoring.md`: fraud engine design, rules, and review workflow
 - `failure-scenarios.md`: failure modes, retries, idempotency, and compensation
 - `observability-security.md`: telemetry, auditability, and security controls
+- `performance-benchmarks.md`: repeatable load, latency, and capacity benchmark coverage
 - `runbook-local-demo.md`: local setup, demo script, and verification checklist
