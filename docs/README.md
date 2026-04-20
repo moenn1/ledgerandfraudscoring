@@ -5,6 +5,7 @@ This folder contains the implementation and operations reference for LedgerForge
 ## Contents
 
 - `architecture.md`: system architecture, module boundaries, and data flow
+- `deployment-topology.md`: staging/production environment strategy, config boundaries, and release promotion policy
 - `state-machine.md`: payment lifecycle and transition rules
 - `ledger-invariants.md`: accounting invariants and reconciliation checks
 - `fraud-scoring.md`: fraud engine design, rules, and review workflow

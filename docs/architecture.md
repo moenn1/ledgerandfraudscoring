@@ -90,3 +90,4 @@ sequenceDiagram
 - Persist all financial state in PostgreSQL with Flyway/Liquibase migrations.
 - Use Redis for idempotency key cache and velocity counters (optional in MVP).
 - Introduce async bus and outbox in phase 2 for higher throughput and decoupling.
+- Use [deployment-topology.md](deployment-topology.md) as the source for environment separation, runtime config ownership, migration safety, and release promotion policy.

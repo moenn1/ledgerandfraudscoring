@@ -6,6 +6,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 
 ### Added
 - Initial repository bootstrap with baseline README, architecture docs, and local developer tooling.
+- A deployment topology and release-promotion operating model covering local, staging, and production environment boundaries; runtime config ownership; migration safety; and rollback expectations.
 - Operator console data-source guardrails so live payment and ledger APIs remain the source of truth even when metrics or reconciliation endpoints are missing.
 - Live manual-review decision wiring for approve/reject actions against `/api/fraud/reviews/{id}/decision`, with client-side session audit entries carrying correlation and idempotency metadata.
 - Derived operator investigation views for payment audit trails, retry corridors, and reconciliation repair playbooks built from live payment, ledger, review, and anomaly data.
@@ -17,6 +18,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Repository-facing docs now use product and implementation language only, without internal workflow references.
 - Payment lifecycle docs now reflect the implemented confirm flow reserving funds, manual-review holds, and cancel guards.
 - Ledger invariants documentation now includes the operator recovery flow for `/api/ledger/replay/accounts/{accountId}` and `/api/ledger/verification`.
+- Architecture and repository indexes now surface deployment and release guidance alongside the existing local runbook and security notes.
 
 ### Fixed
 - Backend payment integration tests now use transactional rollback so idempotency assertions stay isolated across test methods.
