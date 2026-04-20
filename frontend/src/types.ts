@@ -8,7 +8,9 @@ export type PaymentStatus =
   | "SETTLED"
   | "REJECTED"
   | "REVERSED"
-  | "REFUNDED";
+  | "CHARGEBACK"
+  | "REFUNDED"
+  | "CANCELLED";
 
 export type Decision = "APPROVE" | "REVIEW" | "REJECT";
 
@@ -66,6 +68,43 @@ export interface ReconciliationItem {
   details: string;
 }
 
+export type AuditSource = "PAYMENT" | "LEDGER" | "REVIEW" | "RECON" | "SESSION";
+
+export interface AuditEntry {
+  id: string;
+  paymentId: string;
+  timestamp: string;
+  actor: string;
+  source: AuditSource;
+  title: string;
+  detail: string;
+}
+
+export type RetryOutcome = "PROGRESSED" | "HELD" | "BLOCKED";
+
+export interface RetryAttempt {
+  id: string;
+  paymentId: string;
+  fingerprint: string;
+  attemptNumber: number;
+  status: PaymentStatus;
+  decision: Decision;
+  createdAt: string;
+  outcome: RetryOutcome;
+  detail: string;
+}
+
+export interface RepairRecommendation {
+  id: string;
+  anomalyId: string;
+  paymentId: string;
+  title: string;
+  detail: string;
+  owner: string;
+  urgency: ReconciliationItem["severity"];
+  guardrail: string;
+}
+
 export interface DashboardMetrics {
   processedToday: number;
   approvedRate: number;
@@ -82,4 +121,22 @@ export interface AppData {
   ledgerEntries: LedgerEntry[];
   reviewCases: ReviewCase[];
   reconciliationItems: ReconciliationItem[];
+  auditEntries: AuditEntry[];
+  retryAttempts: RetryAttempt[];
+  repairRecommendations: RepairRecommendation[];
+}
+
+export type DataSourceMode = "LIVE" | "HYBRID" | "MOCK";
+export type ReviewActionMode = "API" | "LOCAL" | "READ_ONLY";
+
+export interface AppLoadMeta {
+  sourceMode: DataSourceMode;
+  sourceLabel: string;
+  reviewActionMode: ReviewActionMode;
+  warnings: string[];
+}
+
+export interface AppLoadResult {
+  data: AppData;
+  meta: AppLoadMeta;
 }

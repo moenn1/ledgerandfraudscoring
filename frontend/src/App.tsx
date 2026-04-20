@@ -1,9 +1,21 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
-import { loadAppData } from "./api";
-import { AppData, LedgerEntry, Payment, ReconciliationItem, ReviewCase } from "./types";
+import { startTransition, useDeferredValue, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { deriveAnalytics, type AnalyticsData } from "./analytics";
+import { loadAppData, submitReviewDecision } from "./api";
+import {
+  AppData,
+  AppLoadResult,
+  AppLoadMeta,
+  AuditEntry,
+  LedgerEntry,
+  Payment,
+  ReconciliationItem,
+  RepairRecommendation,
+  RetryAttempt,
+  ReviewCase
+} from "./types";
 import { asDate, asMoney, asPct, cx } from "./utils";
 
-type ViewKey = "dashboard" | "payments" | "ledger" | "fraud";
+type ViewKey = "dashboard" | "analytics" | "payments" | "ledger" | "fraud";
 type ReviewAction = "APPROVE" | "REJECT" | "ESCALATE";
 
 interface NavItem {
@@ -28,6 +40,7 @@ interface ReviewActionEvent {
 
 const navItems: NavItem[] = [
   { key: "dashboard", label: "Mission Control", caption: "Live risk and settlement posture" },
+  { key: "analytics", label: "Analytics", caption: "Trends, backlog, and reporting" },
   { key: "payments", label: "Payments", caption: "Timeline and state transitions" },
   { key: "ledger", label: "Ledger Explorer", caption: "Immutable journal traceability" },
   { key: "fraud", label: "Fraud + Recon", caption: "Review queue and anomalies" }
@@ -36,6 +49,7 @@ const navItems: NavItem[] = [
 function App(): JSX.Element {
   const [view, setView] = useState<ViewKey>("dashboard");
   const [data, setData] = useState<AppData | null>(null);
+  const [loadMeta, setLoadMeta] = useState<AppLoadMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedPaymentId, setSelectedPaymentId] = useState<string>("");
@@ -45,6 +59,18 @@ function App(): JSX.Element {
   const [processingReviewCaseIds, setProcessingReviewCaseIds] = useState<string[]>([]);
   const deferredQuery = useDeferredValue(query);
 
+  const applyLoadedState = (result: AppLoadResult): void => {
+    setData(result.data);
+    setLoadMeta(result.meta);
+    setReviewCases(result.data.reviewCases);
+    setSelectedPaymentId((current) => {
+      if (current && result.data.payments.some((payment) => payment.id === current)) {
+        return current;
+      }
+      return result.data.payments[0]?.id ?? "";
+    });
+  };
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -53,9 +79,7 @@ function App(): JSX.Element {
     loadAppData()
       .then((result) => {
         if (cancelled) return;
-        setData(result);
-        setReviewCases(result.reviewCases);
-        setSelectedPaymentId(result.payments[0]?.id ?? "");
+        applyLoadedState(result);
       })
       .catch((loadError) => {
         if (cancelled) return;
@@ -97,56 +121,117 @@ function App(): JSX.Element {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }, [data, selectedPayment]);
 
-  const handleReviewAction = (reviewCaseId: string, action: ReviewAction): void => {
+  const analytics = useMemo(() => {
+    if (!data) return null;
+    return deriveAnalytics({
+      payments: data.payments,
+      ledgerEntries: data.ledgerEntries,
+      reviewCases,
+      reconciliationItems: data.reconciliationItems,
+      retryAttempts: data.retryAttempts
+    });
+  }, [data, reviewCases]);
+
+  const handleReviewAction = async (reviewCaseId: string, action: ReviewAction): Promise<void> => {
     if (processingReviewCaseIds.includes(reviewCaseId)) return;
 
     const targetCase = reviewCases.find((item) => item.id === reviewCaseId);
-    if (!targetCase || targetCase.status !== "OPEN") return;
+    if (!targetCase || targetCase.status !== "OPEN" || !loadMeta) return;
+    if (loadMeta.reviewActionMode === "READ_ONLY") {
+      setError("Manual review actions are unavailable until the live review queue API is online.");
+      return;
+    }
 
     const idempotencyKey = `review-${targetCase.id}-${action.toLowerCase()}`;
     if (reviewActions.some((event) => event.idempotencyKey === idempotencyKey)) return;
 
     const createdAt = new Date().toISOString();
-    const afterStatus: ReviewCase["status"] =
+    const fallbackStatus: ReviewCase["status"] =
       action === "APPROVE" ? "APPROVED" : action === "REJECT" ? "REJECTED" : targetCase.status;
-    const nextOwner = action === "ESCALATE" ? "risk.lead@ledgerforge.local" : targetCase.assignedTo;
-
-    const event: ReviewActionEvent = {
-      id: `${targetCase.id}-${action.toLowerCase()}-${Date.now().toString(36)}`,
-      reviewCaseId: targetCase.id,
-      paymentId: targetCase.paymentId,
-      action,
-      beforeStatus: targetCase.status,
-      afterStatus,
-      actor: "operator.ui@ledgerforge.local",
-      note:
-        action === "APPROVE"
-          ? "Case approved and removed from manual review queue."
-          : action === "REJECT"
-            ? "Case rejected and payment flagged for decline/follow-up."
-            : "Case escalated to risk lead for secondary investigation.",
-      correlationId: `corr-${targetCase.id}-${Date.now().toString(36)}`,
-      idempotencyKey,
-      createdAt
-    };
+    const fallbackOwner = action === "ESCALATE" ? "risk.lead@ledgerforge.local" : targetCase.assignedTo;
+    const note =
+      action === "APPROVE"
+        ? "Case approved and removed from manual review queue."
+        : action === "REJECT"
+          ? "Case rejected and payment flagged for decline/follow-up."
+          : "Case escalated to risk lead for secondary investigation.";
+    const correlationId = `corr-${targetCase.id}-${Date.now().toString(36)}`;
 
     setProcessingReviewCaseIds((current) => [...current, reviewCaseId]);
 
-    startTransition(() => {
-      setReviewCases((current) =>
-        current.map((item) =>
-          item.id === reviewCaseId
-            ? {
-                ...item,
-                status: afterStatus,
-                assignedTo: nextOwner
-              }
-            : item
-        )
-      );
-      setReviewActions((current) => [event, ...current]);
+    try {
+      let afterStatus = fallbackStatus;
+      let nextOwner = fallbackOwner;
+      let refreshedData: AppLoadResult | null = null;
+
+      if (loadMeta.reviewActionMode === "API") {
+        if (action === "ESCALATE") {
+          throw new Error("Escalation is only available in mock fallback mode.");
+        }
+        const resolvedCase = await submitReviewDecision(reviewCaseId, action, note, correlationId);
+        afterStatus = resolvedCase.status;
+        nextOwner = resolvedCase.assignedTo;
+
+        try {
+          refreshedData = await loadAppData();
+        } catch (refreshError) {
+          setError(
+            refreshError instanceof Error
+              ? `Review decision was submitted, but refreshing live payment state failed: ${refreshError.message}`
+              : "Review decision was submitted, but refreshing live payment state failed."
+          );
+        }
+      }
+
+      const event: ReviewActionEvent = {
+        id: `${targetCase.id}-${action.toLowerCase()}-${Date.now().toString(36)}`,
+        reviewCaseId: targetCase.id,
+        paymentId: targetCase.paymentId,
+        action,
+        beforeStatus: targetCase.status,
+        afterStatus,
+        actor: "operator.ui@ledgerforge.local",
+        note,
+        correlationId,
+        idempotencyKey,
+        createdAt
+      };
+
+      startTransition(() => {
+        setReviewCases((current) =>
+          current.map((item) =>
+            item.id === reviewCaseId
+              ? {
+                  ...item,
+                  status: afterStatus,
+                  assignedTo: nextOwner
+                }
+              : item
+          )
+        );
+        if (refreshedData) {
+          applyLoadedState(refreshedData);
+        } else {
+          setData((current) => {
+            if (!current) return current;
+            return {
+              ...current,
+              payments: current.payments.map((payment) =>
+                payment.id === targetCase.paymentId ? applyReviewAction(payment, action, createdAt, note) : payment
+              )
+            };
+          });
+        }
+        setReviewActions((current) => [event, ...current]);
+        if (refreshedData) {
+          setError(null);
+        }
+      });
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Failed to apply review action.");
+    } finally {
       setProcessingReviewCaseIds((current) => current.filter((id) => id !== reviewCaseId));
-    });
+    }
   };
 
   const content = useMemo(() => {
@@ -163,12 +248,19 @@ function App(): JSX.Element {
             }}
           />
         );
+      case "analytics":
+        return <AnalyticsPage analytics={analytics} />;
       case "payments":
         return (
           <PaymentsPage
             payments={filteredPayments}
             selectedPayment={selectedPayment}
             selectedPaymentLedgerEntries={selectedPaymentLedgerEntries}
+            reviewCases={reviewCases}
+            reconciliationItems={data.reconciliationItems}
+            auditEntries={data.auditEntries}
+            retryAttempts={data.retryAttempts}
+            reviewActions={reviewActions}
             query={query}
             onQueryChange={setQuery}
             onSelectPayment={setSelectedPaymentId}
@@ -179,10 +271,14 @@ function App(): JSX.Element {
       case "fraud":
         return (
           <FraudConsolePage
+            payments={data.payments}
             reviewCases={reviewCases}
             reviewActions={reviewActions}
             reconciliationItems={data.reconciliationItems}
+            retryAttempts={data.retryAttempts}
+            repairRecommendations={data.repairRecommendations}
             processingReviewCaseIds={processingReviewCaseIds}
+            reviewActionMode={loadMeta?.reviewActionMode ?? "READ_ONLY"}
             onReviewAction={handleReviewAction}
           />
         );
@@ -190,6 +286,7 @@ function App(): JSX.Element {
         return null;
     }
   }, [
+    analytics,
     data,
     filteredPayments,
     processingReviewCaseIds,
@@ -198,7 +295,8 @@ function App(): JSX.Element {
     reviewCases,
     selectedPayment,
     selectedPaymentLedgerEntries,
-    view
+    view,
+    loadMeta
   ]);
 
   return (
@@ -212,7 +310,15 @@ function App(): JSX.Element {
           <h1>Operator Console</h1>
         </div>
         <div className="status-strip">
-          <span className="pill">Source: {data ? "API (mock fallback armed)" : "Loading"}</span>
+          <span className="pill">Source: {loadMeta?.sourceLabel ?? "Loading"}</span>
+          <span className="pill">
+            Review mode:{" "}
+            {loadMeta?.reviewActionMode === "API"
+              ? "Live decisions"
+              : loadMeta?.reviewActionMode === "LOCAL"
+                ? "Mock actions"
+                : "Read only"}
+          </span>
           <span className="pill">UTC {new Date().toISOString().slice(11, 19)}</span>
         </div>
       </header>
@@ -233,6 +339,7 @@ function App(): JSX.Element {
       <main className="main-panel">
         {loading && <SkeletonState />}
         {!loading && error && <ErrorState message={error} />}
+        {!loading && !error && loadMeta && loadMeta.warnings.length > 0 && <DataModeNotice meta={loadMeta} />}
         {!loading && !error && content}
       </main>
     </div>
@@ -261,6 +368,22 @@ function ErrorState({ message }: { message: string }): JSX.Element {
       <h2>Unable to render console data</h2>
       <p className="muted">{message}</p>
       <p className="muted">Check `VITE_API_BASE_URL`, backend availability, or network policies.</p>
+    </section>
+  );
+}
+
+function DataModeNotice({ meta }: { meta: AppLoadMeta }): JSX.Element {
+  return (
+    <section className="panel">
+      <p className="eyebrow">Operating mode</p>
+      <h2>{meta.sourceLabel}</h2>
+      <ul className="list">
+        {meta.warnings.map((warning) => (
+          <li key={warning} className="list-item">
+            <span>{warning}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -355,10 +478,278 @@ function DashboardPage({
   );
 }
 
+function AnalyticsPage({ analytics }: { analytics: AnalyticsData | null }): JSX.Element {
+  if (!analytics) {
+    return (
+      <section className="panel">
+        <p className="eyebrow">Analytics</p>
+        <h2>Reporting is unavailable</h2>
+        <p className="muted">Derived analytics could not be computed from the current dataset.</p>
+      </section>
+    );
+  }
+
+  const maxTrendTotal = Math.max(1, ...analytics.trends.map((bucket) => bucket.total));
+  const maxBandCount = Math.max(1, ...analytics.riskBands.map((band) => band.count));
+
+  return (
+    <section className="dashboard analytics-page">
+      <article className="panel animated">
+        <p className="eyebrow">Operational reporting</p>
+        <h2>Risk, settlement, and backlog signals</h2>
+        <div className="metric-grid report-grid">
+          <MetricCard label="Approval rate" value={asPct(analytics.headline.approvalRate)} />
+          <MetricCard label="Reject rate" value={asPct(analytics.headline.rejectRate)} />
+          <MetricCard label="Review rate" value={asPct(analytics.headline.reviewRate)} />
+          <MetricCard
+            label="Settlement coverage"
+            value={asPct(analytics.headline.settlementCoverageRate)}
+            tone={analytics.headline.executedWithoutLedgerCount === 0 ? "good" : "warn"}
+          />
+          <MetricCard label="Anomaly rate" value={asPct(analytics.headline.anomalyRate)} />
+          <MetricCard
+            label="Drifted journals"
+            value={String(analytics.headline.driftedJournalCount)}
+            tone={analytics.headline.driftedJournalCount === 0 ? "good" : "warn"}
+          />
+          <MetricCard
+            label="Missing ledger"
+            value={String(analytics.headline.executedWithoutLedgerCount)}
+            tone={analytics.headline.executedWithoutLedgerCount === 0 ? "good" : "warn"}
+          />
+          <MetricCard label="Oldest backlog" value={formatDuration(analytics.headline.oldestBacklogMinutes)} />
+        </div>
+      </article>
+
+      <div className="split-grid">
+        <article className="panel animated stagger-1">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Fraud trends</p>
+              <h3>Recent payment decision flow</h3>
+            </div>
+            <span className="pill">Derived from payment timestamps</span>
+          </div>
+          <div className="stacked-list">
+            {analytics.trends.map((bucket) => (
+              <div key={bucket.label} className="stacked-row">
+                <div className="stacked-meta">
+                  <strong>{bucket.label}</strong>
+                  <span>{bucket.total} payments</span>
+                </div>
+                <div className="stacked-track">
+                  <span
+                    className="stack-segment stack-approve"
+                    style={{ width: `${(bucket.approved / maxTrendTotal) * 100}%` }}
+                  />
+                  <span
+                    className="stack-segment stack-review"
+                    style={{ width: `${(bucket.review / maxTrendTotal) * 100}%` }}
+                  />
+                  <span
+                    className="stack-segment stack-reject"
+                    style={{ width: `${(bucket.rejected / maxTrendTotal) * 100}%` }}
+                  />
+                  <span
+                    className="stack-segment stack-anomaly"
+                    style={{ width: `${(bucket.anomalies / maxTrendTotal) * 100}%` }}
+                  />
+                </div>
+                <div className="stacked-breakdown">
+                  <span>approve {bucket.approved}</span>
+                  <span>review {bucket.review}</span>
+                  <span>reject {bucket.rejected}</span>
+                  <span>anomalies {bucket.anomalies}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel animated stagger-2">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Risk bands</p>
+              <h3>Score distribution and review pressure</h3>
+            </div>
+            <span className="pill">Risk engine summary</span>
+          </div>
+          <div className="band-grid">
+            {analytics.riskBands.map((band) => (
+              <div key={band.label} className="band-card">
+                <div className="band-head">
+                  <strong>{band.label}</strong>
+                  <span>{band.range}</span>
+                </div>
+                <div className="band-bar">
+                  <span style={{ width: `${(band.count / maxBandCount) * 100}%` }} />
+                </div>
+                <div className="band-stats">
+                  <span>{band.count} payments</span>
+                  <span>{asPct(band.share)} of flow</span>
+                  <span>{band.openReviewCount} open reviews</span>
+                  <span>{band.anomalyCount} anomalies</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+      </div>
+
+      <div className="split-grid">
+        <article className="panel animated">
+          <p className="eyebrow">Settlement health</p>
+          <h3>Ledger-backed execution coverage</h3>
+          <div className="detail-grid report-detail-grid">
+            <Detail label="Ledger required">{String(analytics.settlement.ledgerRequiredCount)}</Detail>
+            <Detail label="Balanced">{String(analytics.settlement.balancedCount)}</Detail>
+            <Detail label="Drifted">{String(analytics.settlement.driftedPaymentCount)}</Detail>
+            <Detail label="Missing ledger">{String(analytics.settlement.missingLedgerCount)}</Detail>
+            <Detail label="Settled">{String(analytics.settlement.settledCount)}</Detail>
+            <Detail label="Captured">{String(analytics.settlement.capturedCount)}</Detail>
+            <Detail label="Reserved">{String(analytics.settlement.reservedCount)}</Detail>
+            <Detail label="Refund or dispute">
+              {String(analytics.settlement.refundedCount + analytics.settlement.chargebackCount)}
+            </Detail>
+          </div>
+
+          <div className="divider" />
+
+          <p className="eyebrow">Status performance</p>
+          <h3>Per-state operating report</h3>
+          <div className="scroll-area scroll-area-sm">
+            <table className="data-table data-table-tight">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Count</th>
+                  <th>Avg risk</th>
+                  <th>Avg latency</th>
+                  <th>Open reviews</th>
+                  <th>Ledger coverage</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analytics.statusRows.map((row) => (
+                  <tr key={row.status}>
+                    <td>{row.status}</td>
+                    <td>{row.count}</td>
+                    <td>{Math.round(row.averageRiskScore)}</td>
+                    <td>{formatLatency(row.averageLatencyMs)}</td>
+                    <td>{row.openReviewCount}</td>
+                    <td>{row.ledgerCoverageRate === null ? "n/a" : asPct(row.ledgerCoverageRate)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article className="panel animated stagger-1">
+          <p className="eyebrow">Operational latency</p>
+          <h3>Backlog and anomaly pressure</h3>
+          <div className="detail-grid report-detail-grid">
+            <Detail label="Average latency">{formatLatency(analytics.latency.averageMs)}</Detail>
+            <Detail label="P50 latency">{formatLatency(analytics.latency.p50Ms)}</Detail>
+            <Detail label="P95 latency">{formatLatency(analytics.latency.p95Ms)}</Detail>
+            <Detail label="Max latency">{formatLatency(analytics.latency.maxMs)}</Detail>
+            <Detail label="Longest payment">{analytics.latency.longestPaymentId ?? "n/a"}</Detail>
+            <Detail label="Longest status">{analytics.latency.longestStatus ?? "n/a"}</Detail>
+          </div>
+
+          <div className="divider" />
+
+          <p className="eyebrow">Anomaly mix</p>
+          <h3>Reconciliation rollup</h3>
+          <div className="rollup-grid">
+            <div className="rollup-card">
+              <span>By category</span>
+              <ul className="list compact-list">
+                {analytics.anomaliesByCategory.map((item) => (
+                  <li key={item.label} className="list-item compact-list-item">
+                    <strong>{item.label}</strong>
+                    <span>{item.count}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="rollup-card">
+              <span>By severity</span>
+              <ul className="list compact-list">
+                {analytics.anomaliesBySeverity.map((item) => (
+                  <li key={item.label} className="list-item compact-list-item">
+                    <strong>{item.label}</strong>
+                    <span>{item.count}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="divider" />
+
+          <p className="eyebrow">Review backlog</p>
+          <h3>Queue age and ownership</h3>
+          {analytics.backlog.length === 0 ? (
+            <p className="muted">No open review cases are waiting in the queue.</p>
+          ) : (
+            <ul className="list">
+              {analytics.backlog.map((item) => (
+                <li key={item.reviewCaseId} className="list-item">
+                  <div>
+                    <strong>
+                      {item.paymentId} · {item.paymentStatus}
+                    </strong>
+                    <p>{item.reason}</p>
+                    <p>
+                      risk {item.riskScore} · anomalies {item.anomalyCount} · retries {item.retryCount}
+                    </p>
+                  </div>
+                  <div className="list-meta">
+                    <span>{item.owner}</span>
+                    <span>{formatDuration(item.ageMinutes)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {analytics.ownerWorkloads.length > 0 && (
+            <>
+              <div className="divider" />
+              <p className="eyebrow">Owner load</p>
+              <h3>Who is holding the queue</h3>
+              <ul className="list compact-list">
+                {analytics.ownerWorkloads.map((item) => (
+                  <li key={item.owner} className="list-item compact-list-item">
+                    <div>
+                      <strong>{item.owner}</strong>
+                      <p>{item.openCases} open cases</p>
+                    </div>
+                    <div className="list-meta">
+                      <span>avg age {formatDuration(item.averageAgeMinutes)}</span>
+                      <span>{item.highSeveritySignals} high severity</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </article>
+      </div>
+    </section>
+  );
+}
+
 function PaymentsPage({
   payments,
   selectedPayment,
   selectedPaymentLedgerEntries,
+  reviewCases,
+  reconciliationItems,
+  auditEntries,
+  retryAttempts,
+  reviewActions,
   query,
   onQueryChange,
   onSelectPayment
@@ -366,6 +757,11 @@ function PaymentsPage({
   payments: Payment[];
   selectedPayment: Payment | null;
   selectedPaymentLedgerEntries: LedgerEntry[];
+  reviewCases: ReviewCase[];
+  reconciliationItems: ReconciliationItem[];
+  auditEntries: AuditEntry[];
+  retryAttempts: RetryAttempt[];
+  reviewActions: ReviewActionEvent[];
   query: string;
   onQueryChange: (value: string) => void;
   onSelectPayment: (paymentId: string) => void;
@@ -377,6 +773,43 @@ function PaymentsPage({
   }, [selectedPaymentLedgerEntries]);
 
   const isBalanced = selectedPaymentLedgerEntries.length > 0 && ledgerNet === 0;
+  const selectedReviewCase = useMemo(() => {
+    if (!selectedPayment) return null;
+    return reviewCases.find((reviewCase) => reviewCase.paymentId === selectedPayment.id) ?? null;
+  }, [reviewCases, selectedPayment]);
+
+  const selectedAnomalies = useMemo(() => {
+    if (!selectedPayment) return [];
+    return reconciliationItems.filter((item) => item.paymentId === selectedPayment.id);
+  }, [reconciliationItems, selectedPayment]);
+
+  const selectedRetryHistory = useMemo(() => {
+    if (!selectedPayment) return [];
+    const rootAttempt = retryAttempts.find((attempt) => attempt.paymentId === selectedPayment.id);
+    if (!rootAttempt) return [];
+    return retryAttempts
+      .filter((attempt) => attempt.fingerprint === rootAttempt.fingerprint)
+      .sort((left, right) => left.attemptNumber - right.attemptNumber || left.createdAt.localeCompare(right.createdAt));
+  }, [retryAttempts, selectedPayment]);
+
+  const selectedAuditEntries = useMemo(() => {
+    if (!selectedPayment) return [];
+    const sessionEntries: AuditEntry[] = reviewActions
+      .filter((event) => event.paymentId === selectedPayment.id)
+      .map((event) => ({
+        id: `session-${event.id}`,
+        paymentId: event.paymentId,
+        timestamp: event.createdAt,
+        actor: event.actor,
+        source: "SESSION",
+        title: `Review ${event.action.toLowerCase()}`,
+        detail: `${event.note} (${event.beforeStatus} -> ${event.afterStatus})`
+      }));
+
+    return [...auditEntries.filter((entry) => entry.paymentId === selectedPayment.id), ...sessionEntries].sort(
+      (left, right) => right.timestamp.localeCompare(left.timestamp)
+    );
+  }, [auditEntries, reviewActions, selectedPayment]);
 
   return (
     <section className="split-grid">
@@ -389,7 +822,7 @@ function PaymentsPage({
           <input
             className="search-input"
             value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => onQueryChange(event.target.value)}
             placeholder="Search by id, status, or account"
           />
         </div>
@@ -444,7 +877,20 @@ function PaymentsPage({
               ))}
             </div>
 
-            <h4>State timeline</h4>
+            <div className="insight-grid">
+              <Detail label="Decision">{selectedPayment.decision}</Detail>
+              <Detail label="Review queue">
+                {selectedReviewCase ? `${selectedReviewCase.status} · ${selectedReviewCase.assignedTo}` : "No linked review"}
+              </Detail>
+              <Detail label="Recon signals">
+                {selectedAnomalies.length === 0 ? "Clear" : `${selectedAnomalies.length} active`}
+              </Detail>
+              <Detail label="Retry cluster">
+                {selectedRetryHistory.length <= 1 ? "Single attempt" : `${selectedRetryHistory.length} attempts`}
+              </Detail>
+            </div>
+
+            <h4>Execution timeline</h4>
             <ol className="timeline">
               {selectedPayment.events.map((item) => (
                 <li key={item.id}>
@@ -496,6 +942,52 @@ function PaymentsPage({
                 </div>
               </>
             )}
+
+            <div className="divider" />
+
+            <h4>Retry history</h4>
+            {selectedRetryHistory.length <= 1 ? (
+              <p className="muted">No related retry cluster was detected for this payment fingerprint.</p>
+            ) : (
+              <ol className="timeline timeline-compact">
+                {selectedRetryHistory.map((attempt) => (
+                  <li key={attempt.id}>
+                    <div>
+                      <strong>
+                        Attempt {attempt.attemptNumber} · {attempt.paymentId}
+                      </strong>
+                      <p>{attempt.detail}</p>
+                      <p>
+                        decision: {attempt.decision} · status: {attempt.status} · outcome: {attempt.outcome}
+                      </p>
+                    </div>
+                    <span>{asDate(attempt.createdAt)}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            <div className="divider" />
+
+            <h4>Audit trail</h4>
+            {selectedAuditEntries.length === 0 ? (
+              <p className="muted">No audit rows are available for this payment.</p>
+            ) : (
+              <ol className="timeline timeline-compact">
+                {selectedAuditEntries.map((entry) => (
+                  <li key={entry.id}>
+                    <div>
+                      <strong>{entry.title}</strong>
+                      <p>{entry.detail}</p>
+                      <p>
+                        actor: {entry.actor} · source: {entry.source}
+                      </p>
+                    </div>
+                    <span>{asDate(entry.timestamp)}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
           </>
         )}
       </article>
@@ -539,9 +1031,14 @@ function LedgerExplorerPage({ entries }: { entries: LedgerEntry[] }): JSX.Elemen
               className="search-input"
               placeholder="Filter account"
               value={accountFilter}
-              onChange={(event) => setAccountFilter(event.target.value)}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => setAccountFilter(event.target.value)}
             />
-            <select value={directionFilter} onChange={(event) => setDirectionFilter(event.target.value as typeof directionFilter)}>
+            <select
+              value={directionFilter}
+              onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+                setDirectionFilter(event.target.value as typeof directionFilter)
+              }
+            >
               <option value="ALL">All</option>
               <option value="DEBIT">Debit</option>
               <option value="CREDIT">Credit</option>
@@ -593,84 +1090,117 @@ function LedgerExplorerPage({ entries }: { entries: LedgerEntry[] }): JSX.Elemen
 }
 
 function FraudConsolePage({
+  payments,
   reviewCases,
   reviewActions,
   reconciliationItems,
+  retryAttempts,
+  repairRecommendations,
   processingReviewCaseIds,
+  reviewActionMode,
   onReviewAction
 }: {
+  payments: Payment[];
   reviewCases: ReviewCase[];
   reviewActions: ReviewActionEvent[];
   reconciliationItems: ReconciliationItem[];
+  retryAttempts: RetryAttempt[];
+  repairRecommendations: RepairRecommendation[];
   processingReviewCaseIds: string[];
-  onReviewAction: (reviewCaseId: string, action: ReviewAction) => void;
+  reviewActionMode: AppLoadMeta["reviewActionMode"];
+  onReviewAction: (reviewCaseId: string, action: ReviewAction) => Promise<void> | void;
 }): JSX.Element {
   const recentActions = reviewActions.slice(0, 8);
+  const retriesByPayment = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const attempt of retryAttempts) {
+      counts.set(attempt.paymentId, (counts.get(attempt.paymentId) ?? 0) + 1);
+    }
+    return counts;
+  }, [retryAttempts]);
+  const reconByPayment = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of reconciliationItems) {
+      counts.set(item.paymentId, (counts.get(item.paymentId) ?? 0) + 1);
+    }
+    return counts;
+  }, [reconciliationItems]);
+  const paymentsById = useMemo(() => new Map(payments.map((payment) => [payment.id, payment])), [payments]);
 
   return (
     <section className="split-grid">
       <article className="panel animated">
         <p className="eyebrow">Fraud operations</p>
         <h2>Manual review console</h2>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Case</th>
-              <th>Payment</th>
-              <th>Status</th>
-              <th>Reason</th>
-              <th>Owner</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reviewCases.map((item) => {
-              const isBusy = processingReviewCaseIds.includes(item.id);
-              const isOpen = item.status === "OPEN";
+        <div className="scroll-area">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Case</th>
+                <th>Payment</th>
+                <th>Status</th>
+                <th>Reason</th>
+                <th>Retries</th>
+                <th>Recon</th>
+                <th>Owner</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reviewCases.map((item) => {
+                const isBusy = processingReviewCaseIds.includes(item.id);
+                const isOpen = item.status === "OPEN";
 
-              return (
-                <tr key={item.id}>
-                  <td>{item.id}</td>
-                  <td>{item.paymentId}</td>
-                  <td>
-                    <span className={cx("status-chip", reviewStatusTone(item.status))}>{item.status}</span>
-                  </td>
-                  <td>{item.reason}</td>
-                  <td>{item.assignedTo}</td>
-                  <td>
-                    {isOpen ? (
-                      <div className="table-action-row">
-                        <button
-                          className="table-action table-action-approve"
-                          disabled={isBusy}
-                          onClick={() => onReviewAction(item.id, "APPROVE")}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          className="table-action table-action-reject"
-                          disabled={isBusy}
-                          onClick={() => onReviewAction(item.id, "REJECT")}
-                        >
-                          Reject
-                        </button>
-                        <button
-                          className="table-action table-action-escalate"
-                          disabled={isBusy}
-                          onClick={() => onReviewAction(item.id, "ESCALATE")}
-                        >
-                          Escalate
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="muted">Closed</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                return (
+                  <tr key={item.id}>
+                    <td>{item.id}</td>
+                    <td>{item.paymentId}</td>
+                    <td>
+                      <span className={cx("status-chip", reviewStatusTone(item.status))}>{item.status}</span>
+                    </td>
+                    <td>{item.reason}</td>
+                    <td>{retriesByPayment.get(item.paymentId) ?? 0}</td>
+                    <td>{reconByPayment.get(item.paymentId) ?? 0}</td>
+                    <td>{item.assignedTo}</td>
+                    <td>
+                      {isOpen && reviewActionMode !== "READ_ONLY" ? (
+                        <div className="table-action-row">
+                          <button
+                            className="table-action table-action-approve"
+                            disabled={isBusy}
+                            onClick={() => onReviewAction(item.id, "APPROVE")}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            className="table-action table-action-reject"
+                            disabled={isBusy}
+                            onClick={() => onReviewAction(item.id, "REJECT")}
+                          >
+                            Reject
+                          </button>
+                          {reviewActionMode === "LOCAL" && (
+                            <button
+                              className="table-action table-action-escalate"
+                              disabled={isBusy}
+                              onClick={() => onReviewAction(item.id, "ESCALATE")}
+                            >
+                              Escalate
+                            </button>
+                          )}
+                        </div>
+                      ) : isOpen ? (
+                        <span className="muted">Read only</span>
+                      ) : (
+                        <span className="muted">Closed</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </article>
 
       <article className="panel animated stagger-1">
@@ -687,6 +1217,8 @@ function FraudConsolePage({
               </div>
               <div className="list-meta">
                 <span className={cx("tag", severityTone(item.severity))}>{item.severity}</span>
+                <span>{paymentsById.get(item.paymentId)?.status ?? "UNKNOWN"}</span>
+                <span>{retriesByPayment.get(item.paymentId) ?? 0} retries</span>
                 <span>{asDate(item.createdAt)}</span>
               </div>
             </li>
@@ -695,8 +1227,31 @@ function FraudConsolePage({
 
         <div className="divider" />
 
+        <p className="eyebrow">Repair playbook</p>
+        <h3>Recommended next actions</h3>
+        <ul className="list">
+          {repairRecommendations.map((item) => (
+            <li key={item.id} className="list-item">
+              <div>
+                <strong>
+                  {item.title} · {item.paymentId}
+                </strong>
+                <p>{item.detail}</p>
+                <p>{item.guardrail}</p>
+              </div>
+              <div className="list-meta">
+                <span className={cx("tag", severityTone(item.urgency))}>{item.urgency}</span>
+                <span>{item.owner}</span>
+                <span>{paymentsById.get(item.paymentId)?.status ?? "UNKNOWN"}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        <div className="divider" />
+
         <p className="eyebrow">Review audit</p>
-        <h3>Immutable decision trail</h3>
+        <h3>Session decision trail</h3>
         {recentActions.length === 0 ? (
           <p className="muted">No review actions captured in this session.</p>
         ) : (
@@ -741,7 +1296,7 @@ function MetricCard({
   );
 }
 
-function Detail({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+function Detail({ label, children }: { label: string; children: ReactNode }): JSX.Element {
   return (
     <div className="detail">
       <span>{label}</span>
@@ -751,8 +1306,8 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
 }
 
 function statusTone(status: string): string {
-  if (["SETTLED", "CAPTURED", "APPROVED"].includes(status)) return "status-good";
-  if (["REJECTED", "REVERSED"].includes(status)) return "status-bad";
+  if (["SETTLED", "CAPTURED", "APPROVED", "RESERVED", "REFUNDED"].includes(status)) return "status-good";
+  if (["REJECTED", "REVERSED", "CHARGEBACK", "CANCELLED"].includes(status)) return "status-bad";
   return "status-neutral";
 }
 
@@ -766,6 +1321,49 @@ function severityTone(level: ReconciliationItem["severity"]): string {
   if (level === "HIGH") return "severity-high";
   if (level === "MEDIUM") return "severity-medium";
   return "severity-low";
+}
+
+function applyReviewAction(payment: Payment, action: ReviewAction, createdAt: string, note: string): Payment {
+  if (action === "ESCALATE") {
+    return payment;
+  }
+
+  const status = action === "APPROVE" ? "RESERVED" : "REJECTED";
+  return {
+    ...payment,
+    status,
+    updatedAt: createdAt,
+    reasonCodes:
+      action === "REJECT" && !payment.reasonCodes.includes("manual_review_rejected")
+        ? [...payment.reasonCodes, "manual_review_rejected"]
+        : payment.reasonCodes,
+    events: [
+      ...payment.events,
+      {
+        id: `${payment.id}-manual-review-${action.toLowerCase()}`,
+        type: `manual_review_${action.toLowerCase()}`,
+        status,
+        timestamp: createdAt,
+        actor: "operator.ui@ledgerforge.local",
+        note
+      }
+    ]
+  };
+}
+
+function formatDuration(totalMinutes: number): string {
+  if (totalMinutes <= 0) return "0m";
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+}
+
+function formatLatency(valueMs: number): string {
+  if (valueMs < 1_000) return `${valueMs} ms`;
+  if (valueMs < 60_000) return `${(valueMs / 1_000).toFixed(1)} s`;
+  return `${(valueMs / 60_000).toFixed(1)} min`;
 }
 
 export default App;

@@ -18,4 +18,4 @@ LedgerForge Payments is a local-first fintech demo platform for real-time paymen
 
 ## Status
 
-The repository is being bootstrapped from an empty remote. See Paperclip company `LedgerForge Payments` for the working issue tree (`LED-1` through `LED-8`).
+The repository is being built out as the LedgerForge platform, with ongoing delivery across ledger, payments, fraud, and operator workflows.
