@@ -18,4 +18,4 @@ LedgerForge Payments is a local-first fintech demo platform for real-time paymen
 
 ## Status
 
-The repository is being built out as the full LedgerForge platform, with tracked delivery issues covering ledger, payments, fraud, operator workflows, observability, and local orchestration.
+The repository is being built out as the LedgerForge platform, with ongoing delivery across ledger, payments, fraud, and operator workflows.

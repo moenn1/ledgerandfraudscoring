@@ -8,6 +8,7 @@ import {
   ReconciliationItem,
   ReviewCase
 } from "./types";
+import { deriveAuditEntries, deriveRepairRecommendations, deriveRetryAttempts } from "./investigation";
 
 function iso(minutesAgo: number): string {
   return new Date(Date.now() - minutesAgo * 60_000).toISOString();
@@ -87,11 +88,23 @@ const payments: Payment[] = [
   payment("pay-1001", 125_00, "SETTLED", 22, "APPROVE", 95, ["trusted_device"]),
   payment("pay-1002", 6_600_00, "REJECTED", 88, "REJECT", 80, ["ip_country_mismatch", "new_device_high_value"]),
   payment("pay-1003", 94_20, "CAPTURED", 38, "APPROVE", 73, ["first_time_payee"]),
-  payment("pay-1004", 11_000_00, "RESERVED", 64, "REVIEW", 59, ["velocity_1m_exceeded", "declined_attempts"]),
+  {
+    ...payment("pay-1004", 11_000_00, "RESERVED", 64, "REVIEW", 59, ["velocity_1m_exceeded", "declined_attempts"]),
+    payerAccountId: "acc-payer-risk-ops",
+    payeeAccountId: "acc-payee-merchant-330"
+  },
   payment("pay-1005", 240_00, "SETTLED", 31, "APPROVE", 45, ["amount_near_user_baseline"]),
   payment("pay-1006", 520_00, "REFUNDED", 18, "APPROVE", 33, ["trusted_pattern"]),
-  payment("pay-1007", 8_450_00, "RISK_SCORING", 55, "REVIEW", 20, ["new_account_high_value"]),
-  payment("pay-1008", 2_150_00, "APPROVED", 41, "REVIEW", 12, ["ip_velocity_spike"])
+  {
+    ...payment("pay-1007", 8_450_00, "RISK_SCORING", 55, "REVIEW", 20, ["new_account_high_value"]),
+    payerAccountId: "acc-payer-risk-ops",
+    payeeAccountId: "acc-payee-merchant-330"
+  },
+  {
+    ...payment("pay-1008", 2_150_00, "APPROVED", 41, "REVIEW", 12, ["ip_velocity_spike"]),
+    payerAccountId: "acc-payer-risk-ops",
+    payeeAccountId: "acc-payee-merchant-330"
+  }
 ];
 
 const ledgerEntries: LedgerEntry[] = payments.flatMap((p) => {
@@ -199,5 +212,8 @@ export const mockData: AppData = {
   payments,
   ledgerEntries,
   reviewCases,
-  reconciliationItems
+  reconciliationItems,
+  auditEntries: deriveAuditEntries(payments, ledgerEntries, reviewCases, reconciliationItems),
+  retryAttempts: deriveRetryAttempts(payments),
+  repairRecommendations: deriveRepairRecommendations(reconciliationItems, payments, reviewCases)
 };
