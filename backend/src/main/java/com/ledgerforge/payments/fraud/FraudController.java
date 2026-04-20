@@ -3,8 +3,11 @@ package com.ledgerforge.payments.fraud;
 import com.ledgerforge.payments.common.web.CorrelationIds;
 import com.ledgerforge.payments.fraud.api.ReviewCaseResponse;
 import com.ledgerforge.payments.fraud.api.ReviewDecisionRequest;
+import com.ledgerforge.payments.security.OperatorIdentity;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,15 +29,20 @@ public class FraudController {
     }
 
     @GetMapping("/reviews")
+    @PreAuthorize("hasRole('VIEWER')")
     public List<ReviewCaseResponse> reviews() {
         return manualReviewService.listQueue().stream().map(ReviewCaseResponse::from).toList();
     }
 
     @PostMapping("/reviews/{id}/decision")
+    @PreAuthorize("hasRole('REVIEWER')")
     public ReviewCaseResponse decide(@PathVariable UUID id,
                                      @Valid @RequestBody ReviewDecisionRequest request,
-                                     HttpServletRequest httpRequest) {
+                                     HttpServletRequest httpRequest,
+                                     Authentication authentication) {
         String correlationId = CorrelationIds.resolve(httpRequest);
-        return ReviewCaseResponse.from(manualReviewService.decide(id, request, correlationId));
+        return ReviewCaseResponse.from(
+                manualReviewService.decide(id, request, correlationId, OperatorIdentity.from(authentication).actorId())
+        );
     }
 }

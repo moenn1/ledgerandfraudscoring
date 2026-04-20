@@ -8,7 +8,18 @@ LedgerForge Payments is a local-first fintech demo platform for real-time paymen
 - React operator dashboard for payment review and reconciliation
 - PostgreSQL-backed immutable ledger model
 - Idempotent payment APIs with real-time fraud scoring
+- OAuth2 resource-server protection for operator APIs with Viewer, Operator, Reviewer, and Admin role boundaries
 - Local developer workflow with Docker Compose
+
+## Local Operator Auth
+
+The backend now expects bearer authentication on operator APIs. For local development, mint a short-lived HS256 token with:
+
+```bash
+./scripts/generate-operator-token.py --subject operator.admin@ledgerforge.local --role ADMIN
+```
+
+Use that token in `Authorization: Bearer ...` headers for API calls, or export it as `VITE_API_BEARER_TOKEN` before starting the frontend.
 
 ## Repository Layout
 

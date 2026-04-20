@@ -83,7 +83,7 @@ public class ManualReviewService {
     }
 
     @Transactional
-    public ReviewCaseEntity decide(UUID reviewCaseId, ReviewDecisionRequest request, String correlationId) {
+    public ReviewCaseEntity decide(UUID reviewCaseId, ReviewDecisionRequest request, String correlationId, String actorId) {
         ReviewCaseEntity reviewCase = reviewCaseRepository.findById(reviewCaseId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Review case not found: " + reviewCaseId));
         if (reviewCase.getStatus() != ReviewCaseStatus.OPEN) {
@@ -125,17 +125,19 @@ public class ManualReviewService {
         Map<String, Object> details = new HashMap<>();
         details.put("reviewCaseId", reviewCase.getId());
         details.put("decision", request.decision().name());
-        details.put("actor", request.actor());
+        details.put("actor", actorId);
         details.put("note", request.note() == null ? "" : request.note());
         if (reserveJournal != null) {
             details.put("journalId", reserveJournal.getId());
         }
-        auditService.append(
+        auditService.appendWithActor(
                 "fraud.review_case.decided",
                 payment.getId(),
                 payment.getPayerAccountId(),
                 reserveJournal == null ? null : reserveJournal.getId(),
                 correlationId,
+                "operator",
+                actorId,
                 details
         );
 

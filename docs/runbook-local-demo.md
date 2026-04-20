@@ -1,6 +1,6 @@
 # Local Demo Runbook
 
-This runbook provides a practical path to demo the platform once backend/frontend code is available.
+This runbook provides a practical path to demo the platform locally with the secured operator API enabled.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ This runbook provides a practical path to demo the platform once backend/fronten
 
 ```mermaid
 flowchart LR
-    UI[Operator UI :3000] --> API[Backend API :8080]
+    UI[Operator UI :5173] --> API[Backend API :8080]
     API --> PG[(PostgreSQL :5432)]
     API --> Redis[(Redis :6379)]
     API --> Kafka[(Kafka :9092)]
@@ -27,23 +27,23 @@ flowchart LR
    - `cd backend`
    - `mvn spring-boot:run`
 3. Start frontend:
+   - `export VITE_API_BEARER_TOKEN="$(./scripts/generate-operator-token.py --subject operator.admin@ledgerforge.local --role ADMIN)"`
    - `cd frontend`
    - `npm install`
    - `npm run dev`
 4. Open dashboard:
-   - `http://localhost:3000`
+   - `http://127.0.0.1:5173`
 
 ## Demo Script
 
-1. Create two accounts (`payer`, `payee`) in same currency.
-2. Fund payer via seed/admin endpoint.
-3. Create payment intent with idempotency key.
-4. Confirm payment and show fraud score + decision.
-5. Capture payment and inspect ledger entries.
-6. Query account balances and show projection correctness.
-7. Trigger high-risk payment and show manual review queue.
-8. Approve/reject review case and verify state transitions.
-9. Run reconciliation endpoint and show no mismatches.
+1. Generate one admin token and one reviewer token:
+   - `export ADMIN_TOKEN="$(./scripts/generate-operator-token.py --subject operator.admin@ledgerforge.local --role ADMIN)"`
+   - `export REVIEWER_TOKEN="$(./scripts/generate-operator-token.py --subject risk.reviewer@ledgerforge.local --role REVIEWER)"`
+2. Run `./scripts/seed-demo.sh` to create demo accounts and one captured payment.
+3. Create a second high-risk payment and confirm it into manual review.
+4. Inspect `GET /api/fraud/reviews` with a viewer or admin token.
+5. Approve or reject the review using `POST /api/fraud/reviews/{id}/decision` with the reviewer token.
+6. Inspect payment state, ledger entries, and account balances after the review decision.
 
 ## Verification Checklist
 
@@ -51,6 +51,7 @@ flowchart LR
 - Duplicate `POST /payments` with same key is idempotent.
 - Duplicate `capture` does not double-charge.
 - Audit timeline includes every mutation.
+- Unauthorized requests return JSON `401` and `403` responses and append security audit events.
 - Fraud decisions include reason codes.
 - Dashboard reflects ledger and payment state consistently.
 
@@ -60,3 +61,4 @@ flowchart LR
 - If stale balances appear: replay projection endpoint and refresh UI.
 - If events are delayed: inspect outbox backlog and broker health.
 - If fraud service timeout spikes: force fallback to `REVIEW` and inspect latency metrics.
+- If the UI or scripts receive `401` or `403`: verify the bearer token issuer, audience, and shared HMAC secret match the backend config.

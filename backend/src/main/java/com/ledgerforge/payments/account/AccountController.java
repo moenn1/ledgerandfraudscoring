@@ -6,6 +6,7 @@ import com.ledgerforge.payments.account.api.CreateAccountRequest;
 import com.ledgerforge.payments.ledger.LedgerEntryResponse;
 import com.ledgerforge.payments.ledger.LedgerService;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,26 +30,31 @@ public class AccountController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public AccountResponse create(@Valid @RequestBody CreateAccountRequest request) {
         return AccountResponse.from(accountService.create(request));
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('VIEWER')")
     public List<AccountResponse> list() {
         return accountService.list().stream().map(AccountResponse::from).toList();
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('VIEWER')")
     public AccountResponse get(@PathVariable UUID id) {
         return AccountResponse.from(accountService.get(id));
     }
 
     @GetMapping("/{id}/balance")
+    @PreAuthorize("hasRole('VIEWER')")
     public AccountBalanceResponse balance(@PathVariable UUID id) {
         return accountService.balance(id);
     }
 
     @GetMapping("/{id}/ledger")
+    @PreAuthorize("hasRole('VIEWER')")
     public List<LedgerEntryResponse> ledger(@PathVariable UUID id) {
         return ledgerService.listByAccount(id).stream().map(LedgerEntryResponse::from).toList();
     }

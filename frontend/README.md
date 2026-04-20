@@ -40,8 +40,8 @@ If your backend requires operator authentication, set `VITE_API_BEARER_TOKEN` to
 Example:
 
 ```bash
+export VITE_API_BEARER_TOKEN="$(../scripts/generate-operator-token.py --subject operator.admin@ledgerforge.local --role ADMIN)"
 VITE_API_BASE_URL=http://localhost:8080 \
-VITE_API_BEARER_TOKEN="<operator-bearer-token>" \
 npm run dev
 ```
 

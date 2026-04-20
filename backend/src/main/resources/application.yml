@@ -32,3 +32,19 @@ management:
 
 server:
   port: ${PORT:8080}
+
+ledgerforge:
+  security:
+    oauth2:
+      issuer-uri: ${LEDGERFORGE_AUTH_ISSUER_URI:}
+      jwk-set-uri: ${LEDGERFORGE_AUTH_JWK_SET_URI:}
+      issuer: ${LEDGERFORGE_AUTH_ISSUER:https://auth.ledgerforge.local}
+      audience: ${LEDGERFORGE_AUTH_AUDIENCE:ledgerforge-operator-api}
+      hmac-secret: ${LEDGERFORGE_AUTH_HMAC_SECRET:ledgerforge-dev-operator-signing-secret-change-before-shared-envs}
+      principal-claim: ${LEDGERFORGE_AUTH_PRINCIPAL_CLAIM:sub}
+    cors:
+      allowed-origins:
+        - ${LEDGERFORGE_ALLOWED_ORIGIN_PRIMARY:http://127.0.0.1:5173}
+        - ${LEDGERFORGE_ALLOWED_ORIGIN_SECONDARY:http://localhost:5173}
+        - ${LEDGERFORGE_ALLOWED_ORIGIN_TERTIARY:http://127.0.0.1:3000}
+        - ${LEDGERFORGE_ALLOWED_ORIGIN_QUATERNARY:http://localhost:3000}

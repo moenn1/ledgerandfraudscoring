@@ -9,38 +9,18 @@ source "${SCRIPT_DIR}/lib.sh"
 require_cmd curl
 require_cmd python3
 
-payer_account_id="${PAYER_ACCOUNT_ID:-payer-001}"
-payee_account_id="${PAYEE_ACCOUNT_ID:-payee-001}"
+demo_namespace="${DEMO_NAMESPACE:-demo-$(date -u +%Y%m%d%H%M%S)-$(rand_id | cut -c1-8)}"
+payer_owner_id="${PAYER_OWNER_ID:-${demo_namespace}-payer}"
+payee_owner_id="${PAYEE_OWNER_ID:-${demo_namespace}-payee}"
 payment_amount="${PAYMENT_AMOUNT:-12500}"
-payment_idempotency_key="${PAYMENT_IDEMPOTENCY_KEY:-${IDEMPOTENCY_PREFIX}-seed-$(rand_id)}"
-
-create_account() {
-  local account_id="$1"
-  local owner_id="$2"
-  local starting_balance_cents="$3"
-
-  local payload
-  payload="$(python3 - <<PY
-import json
-print(json.dumps({
-  "id": "${account_id}",
-  "ownerId": "${owner_id}",
-  "currency": "${DEFAULT_CURRENCY}",
-  "startingBalanceCents": ${starting_balance_cents}
-}))
-PY
-)"
-
-  if http_json "POST" "${API_BASE_URL}/api/accounts" "${payload}" >/dev/null 2>&1; then
-    log "account ensured: ${account_id}"
-  else
-    log "could not create account ${account_id} (endpoint may differ); continuing"
-  fi
-}
+payment_idempotency_key="${PAYMENT_IDEMPOTENCY_KEY:-${IDEMPOTENCY_PREFIX}-${demo_namespace}-create}"
+confirm_idempotency_key="${CONFIRM_IDEMPOTENCY_KEY:-${IDEMPOTENCY_PREFIX}-${demo_namespace}-confirm}"
+capture_idempotency_key="${CAPTURE_IDEMPOTENCY_KEY:-${IDEMPOTENCY_PREFIX}-${demo_namespace}-capture}"
 
 log "seeding demo data"
-create_account "${payer_account_id}" "alice" 500000
-create_account "${payee_account_id}" "bob" 100000
+payer_account_id="$(create_account "${payer_owner_id}")"
+payee_account_id="$(create_account "${payee_owner_id}")"
+log "created demo accounts payer=${payer_account_id} payee=${payee_account_id}"
 
 payment_payload="$(python3 - <<PY
 import json
@@ -60,35 +40,43 @@ payment_status=$?
 set -e
 
 if [[ ${payment_status} -ne 0 ]]; then
-  log "could not create demo payment (endpoint may differ); continuing"
-  exit 0
+  log "could not create demo payment"
+  exit 1
 fi
 
-payment_id="$(printf "%s" "${payment_response}" | python3 - <<'PY'
-import json,sys
-obj=json.loads(sys.stdin.read() or "{}")
-print(obj.get("id",""))
-PY
-)"
+payment_id="$(json_get "id" <<<"${payment_response}")"
 
 if [[ -z "${payment_id}" ]]; then
   log "payment created but ID was not found; raw response follows"
   printf "%s\n" "${payment_response}"
-  exit 0
+  exit 1
 fi
 
 log "demo payment created: ${payment_id}"
 
-for action in confirm capture; do
-  set +e
-  http_json "POST" "${API_BASE_URL}/api/payments/${payment_id}/${action}" "{}" >/dev/null 2>&1
-  rc=$?
-  set -e
-  if [[ ${rc} -eq 0 ]]; then
-    log "payment ${action} succeeded: ${payment_id}"
-  else
-    log "payment ${action} skipped/failure for ${payment_id} (endpoint or lifecycle may differ)"
-  fi
-done
+confirm_payload="$(python3 - <<PY
+import json
+print(json.dumps({
+  "newDevice": False,
+  "ipCountry": "US",
+  "accountCountry": "US",
+  "recentDeclines": 0,
+  "accountAgeMinutes": 1440
+}))
+PY
+)"
+
+http_json "POST" "${API_BASE_URL}/api/payments/${payment_id}/confirm" "${confirm_payload}" "Idempotency-Key: ${confirm_idempotency_key}" >/dev/null
+log "payment confirm succeeded: ${payment_id}"
+
+http_json "POST" "${API_BASE_URL}/api/payments/${payment_id}/capture" "" "Idempotency-Key: ${capture_idempotency_key}" >/dev/null
+log "payment capture succeeded: ${payment_id}"
 
 log "seed step finished"
+
+cat <<EOF
+DEMO_NAMESPACE=${demo_namespace}
+PAYER_ACCOUNT_ID=${payer_account_id}
+PAYEE_ACCOUNT_ID=${payee_account_id}
+CAPTURED_PAYMENT_ID=${payment_id}
+EOF

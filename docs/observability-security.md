@@ -47,10 +47,18 @@ Every financial mutation should emit an immutable event:
 ### Controls
 
 - OAuth2/OIDC authentication for all operator APIs
-- RBAC checks on sensitive actions (`capture`, `refund`, `review approve/reject`)
+- RBAC checks on sensitive actions (`create account`, `create journal`, `capture`, `refund`, `review approve/reject`, `ledger replay`, `ledger verification`)
 - Mask account identifiers in UI and logs where possible
 - Encrypt sensitive columns at rest if available
 - Sign internal service calls (phase 2 distributed mode)
+
+### Implemented Local Boundary
+
+- The backend now runs as an OAuth2 resource server and validates bearer tokens against either a configured issuer or JWK set, or the local HS256 development secret.
+- Role hierarchy is enforced as `Admin -> Operator/Reviewer -> Viewer`.
+- Manual-review decisions no longer trust a request-body actor field; the authenticated principal becomes the audit actor.
+- `401` and `403` responses are emitted as JSON and appended to the immutable audit trail as security events.
+- `scripts/generate-operator-token.py` mints local HS256 tokens for demos, smoke checks, and frontend sessions. Shared environments should override the dev secret or use a real issuer.
 
 ### Abuse and Data Safety
 
