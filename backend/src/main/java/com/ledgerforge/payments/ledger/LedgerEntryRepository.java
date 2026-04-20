@@ -12,6 +12,8 @@ public interface LedgerEntryRepository extends JpaRepository<LedgerEntryEntity, 
 
     List<LedgerEntryEntity> findByAccountIdOrderByCreatedAtDesc(UUID accountId);
 
+    List<LedgerEntryEntity> findByAccountIdOrderByCreatedAtAscIdAsc(UUID accountId);
+
     List<LedgerEntryEntity> findByJournal_IdOrderByCreatedAtAsc(UUID journalId);
 
     @Query("""
@@ -36,4 +38,12 @@ public interface LedgerEntryRepository extends JpaRepository<LedgerEntryEntity, 
             having sum(case when le.direction = com.ledgerforge.payments.ledger.LedgerDirection.CREDIT then le.amount else -le.amount end) <> 0
             """)
     List<Object[]> findUnbalancedJournalAggregates();
+
+    @Query("""
+            select le.journal.id, count(distinct le.currency)
+            from LedgerEntryEntity le
+            group by le.journal.id
+            having count(distinct le.currency) > 1
+            """)
+    List<Object[]> findMixedCurrencyJournalAggregates();
 }
