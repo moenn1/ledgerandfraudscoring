@@ -19,6 +19,7 @@ LedgerForge Payments is a local-first fintech demo platform for real-time paymen
 ## Deployment and Release Planning
 
 - `docs/deployment-topology.md`: target staging/production topology, runtime config boundaries, migration safety, and promotion rules
+- `docs/repository-governance.md`: repository contribution policy, branch protection, ownership routing, and documentation requirements
 - `docs/runbook-local-demo.md`: local topology and demo workflow
 - `docs/observability-security.md`: telemetry, auditability, and operator/security controls that releases must preserve
 

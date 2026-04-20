@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ledger invariants reference
+    url: https://github.com/moenn1/ledgerandfraudscoring/blob/main/docs/ledger-invariants.md
+    about: Review accounting invariants, replay semantics, and reconciliation controls before raising ledger questions.
+  - name: Local demo runbook
+    url: https://github.com/moenn1/ledgerandfraudscoring/blob/main/docs/runbook-local-demo.md
+    about: Use the local setup and demo verification steps before reporting environment problems.

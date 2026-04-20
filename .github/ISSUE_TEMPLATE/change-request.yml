@@ -1,0 +1,50 @@
+name: Change request
+description: Propose a feature, workflow, or governance change for LedgerForge Payments.
+title: "[Change] "
+labels:
+  - enhancement
+body:
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Primary domain
+      options:
+        - Payments API
+        - Ledger and settlement
+        - Fraud scoring and review
+        - Operator console
+        - Reconciliation and observability
+        - Developer experience and governance
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: Describe the workflow or capability gap.
+      placeholder: Operators cannot distinguish a payment awaiting manual review from one blocked on settlement repair.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the target behavior, API contract, or operational policy.
+    validations:
+      required: true
+  - type: textarea
+    id: controls
+    attributes:
+      label: Financial and control impact
+      description: Explain any expected effect on ledger balancing, idempotency, fraud controls, reconciliation, or audit history.
+      placeholder: Adds a new operator hold state without changing journal invariants; requires audit events for every release action.
+    validations:
+      required: true
+  - type: textarea
+    id: rollout
+    attributes:
+      label: Rollout and documentation
+      description: Capture migration, operator training, and docs/changelog expectations.
+      placeholder: Update the local demo runbook, operator console docs, and changelog alongside the implementation.
+    validations:
+      required: true

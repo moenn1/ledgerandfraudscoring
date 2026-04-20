@@ -1,0 +1,78 @@
+name: Bug report
+description: Report a defect affecting payment flows, ledger integrity, fraud controls, or operator workflows.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Affected domain
+      description: Choose every surface touched by the defect.
+      multiple: true
+      options:
+        - Payments API
+        - Ledger and balances
+        - Fraud scoring and review
+        - Operator console
+        - Reconciliation and observability
+        - Docs and tooling
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Sev 1 - customer funds or ledger integrity at risk
+        - Sev 2 - payment flow degraded or review queue blocked
+        - Sev 3 - operator or reporting workflow degraded
+        - Sev 4 - minor defect
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the observed defect and customer or operator impact.
+      placeholder: Payment confirmation returns 202 but reserve journals are missing from the ledger projection.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide a deterministic path to reproduce the defect.
+      placeholder: |
+        1. Create a payment intent with...
+        2. Confirm the payment...
+        3. Inspect the ledger replay endpoint...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: State the expected API, ledger, or operator outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include HTTP responses, journal mismatches, fraud-review drift, or UI symptoms.
+    validations:
+      required: true
+  - type: textarea
+    id: controls
+    attributes:
+      label: Control impact
+      description: Note any effect on journal balancing, idempotency, auditability, settlement, or access control.
+      placeholder: Journal remains balanced, but idempotency replay can double-create review cases.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, traces, or screenshots
+      description: Add supporting evidence, correlation IDs, or screenshots when available.

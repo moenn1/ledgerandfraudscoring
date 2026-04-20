@@ -1,0 +1,16 @@
+# LedgerForge repository ownership defaults to the maintainer until GitHub teams
+# are introduced for each platform domain.
+
+* @moenn1
+
+# Platform governance and release metadata
+/.github/ @moenn1
+/README.md @moenn1
+/CHANGELOG.md @moenn1
+/docs/ @moenn1
+/scripts/ @moenn1
+
+# Product surfaces
+/backend/ @moenn1
+/frontend/ @moenn1
+/postman/ @moenn1
