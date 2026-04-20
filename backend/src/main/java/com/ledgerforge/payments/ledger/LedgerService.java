@@ -4,6 +4,9 @@ import com.ledgerforge.payments.account.AccountEntity;
 import com.ledgerforge.payments.account.AccountRepository;
 import com.ledgerforge.payments.account.AccountStatus;
 import com.ledgerforge.payments.common.api.ApiException;
+import com.ledgerforge.payments.payment.PaymentIntentEntity;
+import com.ledgerforge.payments.payment.PaymentIntentRepository;
+import com.ledgerforge.payments.payment.PaymentStatus;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -11,7 +14,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -25,15 +30,18 @@ public class LedgerService {
     private final JournalTransactionRepository journalTransactionRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
     private final AccountRepository accountRepository;
+    private final PaymentIntentRepository paymentIntentRepository;
 
     public LedgerService(
             JournalTransactionRepository journalTransactionRepository,
             LedgerEntryRepository ledgerEntryRepository,
-            AccountRepository accountRepository
+            AccountRepository accountRepository,
+            PaymentIntentRepository paymentIntentRepository
     ) {
         this.journalTransactionRepository = journalTransactionRepository;
         this.ledgerEntryRepository = ledgerEntryRepository;
         this.accountRepository = accountRepository;
+        this.paymentIntentRepository = paymentIntentRepository;
     }
 
     @Transactional(readOnly = true)
@@ -54,6 +62,101 @@ public class LedgerService {
         JournalTransactionEntity journal = getJournalOrFail(journalId);
         List<LedgerEntryEntity> entries = ledgerEntryRepository.findByJournal_IdOrderByCreatedAtAsc(journalId);
         return JournalResponse.from(journal, entries);
+    }
+
+    @Transactional(readOnly = true)
+    public LedgerReplayResponse replayAccount(UUID accountId) {
+        AccountEntity account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Account not found: " + accountId));
+        List<LedgerEntryEntity> entries = ledgerEntryRepository.findByAccountIdOrderByCreatedAtAscIdAsc(accountId);
+
+        BigDecimal runningBalance = BigDecimal.ZERO;
+        List<LedgerReplayResponse.ReplayEntry> replayEntries = new ArrayList<>();
+        for (LedgerEntryEntity entry : entries) {
+            BigDecimal signedImpact = signedAmount(entry);
+            runningBalance = runningBalance.add(signedImpact);
+            replayEntries.add(new LedgerReplayResponse.ReplayEntry(
+                    entry.getId(),
+                    entry.getJournal().getId(),
+                    entry.getJournal().getType(),
+                    entry.getJournal().getReferenceId(),
+                    entry.getDirection(),
+                    entry.getAmount(),
+                    signedImpact,
+                    runningBalance,
+                    entry.getCreatedAt()
+            ));
+        }
+
+        return new LedgerReplayResponse(
+                account.getId(),
+                account.getCurrency(),
+                replayEntries.size(),
+                runningBalance,
+                replayEntries
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public LedgerVerificationResponse verifyLedger() {
+        List<Object[]> unbalancedRows = ledgerEntryRepository.findUnbalancedJournalAggregates();
+        List<Object[]> mixedCurrencyRows = ledgerEntryRepository.findMixedCurrencyJournalAggregates();
+
+        Set<UUID> flaggedJournalIds = new HashSet<>();
+        for (Object[] row : unbalancedRows) {
+            flaggedJournalIds.add((UUID) row[0]);
+        }
+        for (Object[] row : mixedCurrencyRows) {
+            flaggedJournalIds.add((UUID) row[0]);
+        }
+
+        Map<UUID, JournalTransactionEntity> journalsById = journalTransactionRepository.findAllById(flaggedJournalIds).stream()
+                .collect(Collectors.toMap(JournalTransactionEntity::getId, Function.identity()));
+
+        List<LedgerVerificationResponse.UnbalancedJournalFinding> unbalancedJournals = unbalancedRows.stream()
+                .map(row -> {
+                    UUID journalId = (UUID) row[0];
+                    JournalTransactionEntity journal = journalsById.get(journalId);
+                    return new LedgerVerificationResponse.UnbalancedJournalFinding(
+                            journalId,
+                            journal.getType(),
+                            journal.getReferenceId(),
+                            normalizeNumeric((BigDecimal) row[1])
+                    );
+                })
+                .toList();
+
+        List<LedgerVerificationResponse.MixedCurrencyJournalFinding> mixedCurrencyJournals = mixedCurrencyRows.stream()
+                .map(row -> {
+                    UUID journalId = (UUID) row[0];
+                    JournalTransactionEntity journal = journalsById.get(journalId);
+                    List<String> currencies = ledgerEntryRepository.findByJournal_IdOrderByCreatedAtAsc(journalId).stream()
+                            .map(LedgerEntryEntity::getCurrency)
+                            .distinct()
+                            .sorted()
+                            .toList();
+                    return new LedgerVerificationResponse.MixedCurrencyJournalFinding(
+                            journalId,
+                            journal.getType(),
+                            journal.getReferenceId(),
+                            currencies
+                    );
+                })
+                .toList();
+
+        List<LedgerVerificationResponse.PaymentLifecycleMismatchFinding> paymentLifecycleMismatches = findPaymentLifecycleMismatches();
+        int issueCount = unbalancedJournals.size() + mixedCurrencyJournals.size() + paymentLifecycleMismatches.size();
+
+        return new LedgerVerificationResponse(
+                java.time.Instant.now(),
+                journalTransactionRepository.count(),
+                ledgerEntryRepository.count(),
+                issueCount == 0,
+                issueCount,
+                unbalancedJournals,
+                mixedCurrencyJournals,
+                paymentLifecycleMismatches
+        );
     }
 
     @Transactional
@@ -116,6 +219,111 @@ public class LedgerService {
     private JournalTransactionEntity getJournalOrFail(UUID journalId) {
         return journalTransactionRepository.findById(journalId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Journal not found: " + journalId));
+    }
+
+    private List<LedgerVerificationResponse.PaymentLifecycleMismatchFinding> findPaymentLifecycleMismatches() {
+        Map<UUID, Set<JournalType>> actualJournalTypesByPayment = new HashMap<>();
+        for (JournalTransactionEntity journal : journalTransactionRepository.findAllByReferenceIdStartingWithOrderByCreatedAtAsc("payment:")) {
+            UUID paymentId = parsePaymentId(journal.getReferenceId());
+            if (paymentId == null) {
+                continue;
+            }
+            actualJournalTypesByPayment
+                    .computeIfAbsent(paymentId, ignored -> new HashSet<>())
+                    .add(journal.getType());
+        }
+
+        return paymentIntentRepository.findAllByOrderByCreatedAtAsc().stream()
+                .map(payment -> toLifecycleMismatch(payment, actualJournalTypesByPayment.getOrDefault(payment.getId(), Set.of())))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    private LedgerVerificationResponse.PaymentLifecycleMismatchFinding toLifecycleMismatch(
+            PaymentIntentEntity payment,
+            Set<JournalType> actualJournalTypes
+    ) {
+        List<Set<JournalType>> acceptedJournalTypeSets = expectedJournalTypes(payment.getStatus());
+        boolean matches = acceptedJournalTypeSets.stream().anyMatch(actualJournalTypes::equals);
+        if (matches) {
+            return null;
+        }
+
+        Set<JournalType> closestExpectedSet = acceptedJournalTypeSets.stream()
+                .min(Comparator.<Set<JournalType>>comparingInt(expected -> symmetricDifferenceSize(expected, actualJournalTypes))
+                        .thenComparingInt(Set::size))
+                .orElse(Set.of());
+
+        List<JournalType> actualTypes = sortedJournalTypes(actualJournalTypes);
+        List<List<JournalType>> acceptedTypes = acceptedJournalTypeSets.stream()
+                .map(this::sortedJournalTypes)
+                .toList();
+        List<JournalType> missingTypes = difference(closestExpectedSet, actualJournalTypes);
+        List<JournalType> unexpectedTypes = difference(actualJournalTypes, closestExpectedSet);
+
+        return new LedgerVerificationResponse.PaymentLifecycleMismatchFinding(
+                payment.getId(),
+                payment.getStatus(),
+                actualTypes,
+                acceptedTypes,
+                missingTypes,
+                unexpectedTypes,
+                "Payment status " + payment.getStatus().name() + " has journal types " + actualTypes
+                        + " but expected one of " + acceptedTypes
+        );
+    }
+
+    private List<Set<JournalType>> expectedJournalTypes(PaymentStatus status) {
+        return switch (status) {
+            case CREATED, VALIDATED, RISK_SCORING, APPROVED, REJECTED -> List.of(Set.<JournalType>of());
+            case RESERVED -> List.of(Set.of(JournalType.RESERVE));
+            case CAPTURED, SETTLED -> List.of(Set.of(JournalType.RESERVE, JournalType.CAPTURE));
+            case REFUNDED -> List.of(Set.of(JournalType.RESERVE, JournalType.CAPTURE, JournalType.REFUND));
+            case CANCELLED, REVERSED -> List.of(
+                    Set.<JournalType>of(),
+                    Set.of(JournalType.RESERVE, JournalType.REVERSAL)
+            );
+        };
+    }
+
+    private UUID parsePaymentId(String referenceId) {
+        if (referenceId == null || !referenceId.startsWith("payment:")) {
+            return null;
+        }
+        String[] parts = referenceId.split(":");
+        if (parts.length < 3) {
+            return null;
+        }
+        try {
+            return UUID.fromString(parts[1]);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private int symmetricDifferenceSize(Set<JournalType> left, Set<JournalType> right) {
+        return difference(left, right).size() + difference(right, left).size();
+    }
+
+    private List<JournalType> difference(Set<JournalType> left, Set<JournalType> right) {
+        return left.stream()
+                .filter(type -> !right.contains(type))
+                .sorted(Comparator.comparing(Enum::name))
+                .toList();
+    }
+
+    private List<JournalType> sortedJournalTypes(Set<JournalType> journalTypes) {
+        return journalTypes.stream()
+                .sorted(Comparator.comparing(Enum::name))
+                .toList();
+    }
+
+    private BigDecimal signedAmount(LedgerEntryEntity entry) {
+        return entry.getDirection() == LedgerDirection.CREDIT ? entry.getAmount() : entry.getAmount().negate();
+    }
+
+    private BigDecimal normalizeNumeric(BigDecimal amount) {
+        return amount == null ? BigDecimal.ZERO : amount.stripTrailingZeros();
     }
 
     private List<LedgerLeg> normalizeAndValidate(List<CreateLedgerLegRequest> requestedLegs) {

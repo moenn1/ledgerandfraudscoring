@@ -37,6 +37,23 @@ Net = 0
 - Detect duplicate reserve/capture journals for same reference.
 - Compare event stream counts vs ledger mutation counts.
 
+## Replay And Recovery Tooling
+
+The backend now exposes additive ledger-operations endpoints that keep the immutable ledger as the source of truth while helping operators rebuild projections and flag corrupt state after failures:
+
+- `GET /api/ledger/replay/accounts/{accountId}` returns the account's entries in chronological order with signed deltas and running balance. Use this to rebuild an account projection directly from immutable entries.
+- `GET /api/ledger/verification` runs invariant checks across the ledger and payment lifecycle. The report flags:
+  - unbalanced journals
+  - mixed-currency journals
+  - payments whose persisted status does not match the journal types recorded for that payment
+
+### Recovery Flow
+
+1. Run `GET /api/ledger/verification`.
+2. If `allChecksPassed=false`, inspect the flagged journal or payment identifiers.
+3. For account-impact analysis, run `GET /api/ledger/replay/accounts/{accountId}` on the affected accounts to recompute the running balance from the immutable entry stream.
+4. Repair state by appending the required compensating journal or by fixing the non-ledger projection/read model. Do not overwrite ledger rows.
+
 ## Suggested Database Constraints
 
 - `ledger_entries(amount > 0)`

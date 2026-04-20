@@ -29,4 +29,14 @@ public class LedgerController {
     public JournalResponse getJournal(@PathVariable UUID journalId) {
         return ledgerService.getJournal(journalId);
     }
+
+    @GetMapping("/replay/accounts/{accountId}")
+    public LedgerReplayResponse replayAccount(@PathVariable UUID accountId) {
+        return ledgerService.replayAccount(accountId);
+    }
+
+    @GetMapping("/verification")
+    public LedgerVerificationResponse verifyLedger() {
+        return ledgerService.verifyLedger();
+    }
 }
