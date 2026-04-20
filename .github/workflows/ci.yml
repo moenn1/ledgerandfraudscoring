@@ -34,6 +34,9 @@ jobs:
       - name: Validate documentation references
         run: python3 scripts/ci/validate-docs.py
 
+      - name: Validate changelog structure
+        run: python3 scripts/ci/validate-changelog.py
+
       - name: Enforce changelog and docs coverage
         run: bash scripts/ci/require-docs-changelog.sh
 

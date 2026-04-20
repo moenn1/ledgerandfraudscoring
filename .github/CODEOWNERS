@@ -1,0 +1,13 @@
+# Documentation governance and release history.
+/CHANGELOG.md @moenn1
+/README.md @moenn1
+/docs/ @moenn1
+/frontend/README.md @moenn1
+/postman/README.md @moenn1
+/postman/*.json @moenn1
+/scripts/README.md @moenn1
+/.github/CODEOWNERS @moenn1
+/.github/workflows/ @moenn1
+/.githooks/ @moenn1
+/scripts/ci/ @moenn1
+/scripts/install-git-hooks.sh @moenn1

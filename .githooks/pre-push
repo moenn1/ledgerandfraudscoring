@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+echo "Running LedgerForge documentation and changelog gates before push..."
+python3 scripts/ci/validate-docs.py
+python3 scripts/ci/validate-changelog.py
+bash scripts/ci/require-docs-changelog.sh

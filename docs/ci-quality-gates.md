@@ -12,9 +12,13 @@ LedgerForge uses GitHub Actions to keep the platform buildable, testable, and do
 ### Docs and policy gates
 
 - `python3 scripts/ci/validate-docs.py` validates markdown links and the repository paths documented in the main README indexes
-- `bash scripts/ci/require-docs-changelog.sh` enforces two repository policies against the branch diff:
+- `python3 scripts/ci/validate-changelog.py` enforces the supported `CHANGELOG.md` structure under `## Unreleased`
+- `bash scripts/ci/require-docs-changelog.sh` enforces three repository policies against the branch diff:
   - `CHANGELOG.md` must be updated in every push or pull request
-  - source, workflow, script, compose, or Postman changes must include a nearest relevant documentation update
+  - backend, frontend, workflow, script, hook, compose, and non-doc Postman changes must include a nearest relevant documentation update
+  - documentation coverage is checked by change area, so unrelated doc edits do not satisfy backend, frontend, or platform updates
+
+The canonical update matrix and ownership rules live in `docs/documentation-governance.md`.
 
 ### Backend build and test
 
@@ -42,8 +46,12 @@ Run the same repo-owned gates locally before pushing:
 
 ```bash
 python3 scripts/ci/validate-docs.py
+python3 scripts/ci/validate-changelog.py
 CI_DOCS_BASE=origin/main bash scripts/ci/require-docs-changelog.sh
 bash scripts/ci/postgres-smoke.sh
+bash scripts/install-git-hooks.sh
 ```
 
 The PostgreSQL smoke helper expects a reachable PostgreSQL instance at the `application-postgres.yml` defaults unless `DB_URL`, `DB_USER`, or `DB_PASSWORD` are overridden. The docs/changelog example uses `origin/main` so contributors can validate the exact diff they are about to push.
+
+Installing the git hooks is optional but recommended. The configured `.githooks/pre-push` runs the same docs and changelog checks locally before `git push`.
