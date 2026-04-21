@@ -12,6 +12,7 @@
   - fraud timeout/error rates
   - reconciliation mismatches
   - outbox queue depth and lag
+  - outbox publish success, retry, and dead-letter counts
 
 ### Trace Propagation
 
@@ -20,6 +21,7 @@
 - Include correlation id in audit events and operator timeline payloads.
 - Persist payment mutation outbox rows for reserve/capture/refund/cancel so reconciliation can compare downstream event durability against posted ledger mutations.
 - Use the same `payment.reserved` audit and outbox events for manual-review approvals that post a reserve journal, so reserved funds remain reconcilable regardless of whether approval was automated or operator-driven.
+- The outbox relay now exports `ledgerforge.outbox.queue.depth`, `ledgerforge.outbox.queue.lag.seconds`, `ledgerforge.outbox.publish.success`, `ledgerforge.outbox.publish.retry`, and `ledgerforge.outbox.publish.dead_letter` through Actuator metrics and Prometheus scraping.
 
 ### Audit Event Standard
 
@@ -69,6 +71,7 @@ Every financial mutation should emit an immutable event:
 - `Operator`: `capture`, `refund`, and `cancel` payment mutations
 - `Reviewer`: fraud review decisions (`POST /api/fraud/reviews/{id}/decision`)
 - `Admin`: ledger replay, ledger verification, and repair-oriented journal actions
+- `Admin`: outbox relay inspection, manual relay runs, and dead-letter requeue actions
 
 The current backend protects these routes directly:
 
@@ -78,6 +81,7 @@ The current backend protects these routes directly:
 - `GET /api/fraud/reviews` requires an authenticated operator with at least `Viewer`
 - `POST /api/fraud/reviews/{id}/decision` requires `Reviewer`
 - `GET /api/ledger/**` and `POST /api/ledger/journals` require authenticated operator access, with `Admin` enforced on replay/verification and journal mutation paths
+- `GET /api/outbox/events`, `POST /api/outbox/relay/run`, and `POST /api/outbox/events/{id}/requeue` require `Admin`
 
 Reviewer audit fields are derived from the authenticated token subject or preferred username. The decision payload no longer needs to supply a trusted actor identifier.
 

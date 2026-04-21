@@ -141,6 +141,31 @@ class OperatorApiAuthorizationIntegrationTest {
     }
 
     @Test
+    void outboxControlsRequireAdminRole() throws Exception {
+        mockMvc.perform(get("/api/outbox/events"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/outbox/events")
+                        .header("Authorization", TestOperatorTokens.bearer("viewer.outbox@ledgerforge.local", "VIEWER")))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/outbox/relay/run")
+                        .header("Authorization", TestOperatorTokens.bearer("operator.outbox@ledgerforge.local", "OPERATOR")))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/outbox/events")
+                        .header("Authorization", TestOperatorTokens.bearer("admin.outbox@ledgerforge.local", "ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+
+        mockMvc.perform(post("/api/outbox/relay/run")
+                        .header("Authorization", TestOperatorTokens.bearer("admin.outbox@ledgerforge.local", "ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scanned").value(0))
+                .andExpect(jsonPath("$.published").value(0));
+    }
+
+    @Test
     void reviewQueueAllowsViewerButDecisionRequiresReviewer() throws Exception {
         ReviewCaseEntity reviewCase = openReviewCase("fraud-approve-auth");
 

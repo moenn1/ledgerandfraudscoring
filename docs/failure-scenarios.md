@@ -7,7 +7,7 @@ This project should explicitly handle partial failures and retries without break
 | Scenario | Risk | Required Handling |
 |---|---|---|
 | Payment request retried twice | Duplicate processing | Enforce idempotency key on create/confirm |
-| Ledger write succeeds, event publish fails | Lost downstream updates | Transactional outbox + async relay retry |
+| Ledger write succeeds, event publish fails | Lost downstream updates | Transactional outbox + async relay retry, dead-letter, and operator requeue |
 | Fraud service timeout | Indeterminate decision | Timeout policy: retry, then `REVIEW` fallback |
 | Duplicate webhook/callback | Duplicate state changes | Deduplicate by event id + optimistic checks |
 | Projection lag behind ledger | Stale reads | Display as eventual; provide replay endpoint |
@@ -36,12 +36,13 @@ If a downstream step fails after ledger mutation:
 ## Retry Policy Baseline
 
 - Fraud call: `3` retries (`100ms`, `300ms`, `900ms`) then fallback to review
-- Event publish relay: unbounded retries with backoff + dead-letter after threshold
+- Event publish relay: `5` attempts by default with exponential backoff (`1s`, `2s`, `4s`, `8s`, `16s`) capped at `60s`, then dead-letter until an operator requeues the event
 - External webhook dispatch: bounded retries with idempotent delivery id
 
 ## Operational Alerts
 
 - Unbalanced journals detected
-- Outbox backlog age above threshold
+- Outbox backlog age above threshold (`ledgerforge.outbox.queue.lag.seconds`)
+- Outbox queue depth growth (`ledgerforge.outbox.queue.depth`)
 - Fraud timeout rate spike
 - Reconciliation mismatch count > 0

@@ -76,7 +76,7 @@ public class SecurityConfig {
                                 "/api/payments/*/refund",
                                 "/api/payments/*/cancel"
                         ).authenticated()
-                        .requestMatchers("/api/fraud/**", "/api/ledger/**").authenticated()
+                        .requestMatchers("/api/fraud/**", "/api/ledger/**", "/api/outbox/**").authenticated()
                         .anyRequest().permitAll()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2

@@ -34,6 +34,14 @@ server:
   port: ${PORT:8080}
 
 ledgerforge:
+  outbox:
+    relay-enabled: ${LEDGERFORGE_OUTBOX_RELAY_ENABLED:true}
+    relay-fixed-delay-ms: ${LEDGERFORGE_OUTBOX_RELAY_FIXED_DELAY_MS:5000}
+    batch-size: ${LEDGERFORGE_OUTBOX_BATCH_SIZE:25}
+    claim-timeout-ms: ${LEDGERFORGE_OUTBOX_CLAIM_TIMEOUT_MS:30000}
+    base-delay-ms: ${LEDGERFORGE_OUTBOX_BASE_DELAY_MS:1000}
+    max-delay-ms: ${LEDGERFORGE_OUTBOX_MAX_DELAY_MS:60000}
+    max-attempts: ${LEDGERFORGE_OUTBOX_MAX_ATTEMPTS:5}
   security:
     oauth2:
       issuer-uri: ${LEDGERFORGE_AUTH_ISSUER_URI:}

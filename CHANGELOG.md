@@ -5,6 +5,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 ## Unreleased
 
 ### Added
+- An async outbox relay on `outbox_events` with lease-based claiming, bounded retry backoff, dead-letter tracking, admin recovery endpoints, and queue lag/depth delivery metrics.
 - GitHub Actions workflows for governance checks, backend test/package validation, frontend build validation, backend demo smoke coverage, and tagged release artifact publishing.
 - A dedicated documentation CI workflow and validation script that keep workflow coverage, docs indexes, and the changelog entrypoint aligned.
 - A repository governance guide that documents workflow ownership, branch naming policy, and release expectations.
@@ -18,6 +19,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - JWT-backed operator authentication and RBAC for capture/refund/cancel, fraud review decisions, and ledger replay/verification endpoints, plus a local token generator script for development.
 
 ### Changed
+- Event-delivery, observability, and failure-recovery docs now describe the implemented outbox relay controls, metric names, and operator requeue workflow.
 - Repository indexes and script docs now describe the CI/CD workflow suite and governance checker entrypoint.
 - GitHub Actions quality gates now cancel superseded branch runs, preserve backend test reports on failure, and publish release bundles with versioned filenames plus SHA-256 manifests.
 - Frontend delivery automation now uses a committed portable lockfile with `npm ci`, npm cache reuse, and repo-level npm registry settings that avoid host-specific tarball URLs in version control.

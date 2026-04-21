@@ -89,4 +89,5 @@ sequenceDiagram
 - Start as one service with module boundaries and separate packages.
 - Persist all financial state in PostgreSQL with Flyway/Liquibase migrations.
 - Use Redis for idempotency key cache and velocity counters (optional in MVP).
-- Persist outbox rows for reserve/capture/refund/cancel payment mutations now, and add async relay/bus delivery in phase 2 for higher throughput and decoupling.
+- Persist outbox rows for reserve/capture/refund/cancel payment mutations inside the same transaction as the ledger mutation, then let the async relay claim, publish, retry, and dead-letter those rows without changing ledger history.
+- The current default relay publisher writes delivery-ready payloads to application logs; swap the `OutboxPublisher` implementation when wiring a real broker.
