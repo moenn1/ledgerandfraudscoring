@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -144,8 +145,12 @@ public class LedgerService {
                 })
                 .toList();
 
+        List<LedgerVerificationResponse.DuplicatePaymentJournalFinding> duplicatePaymentJournals = findDuplicatePaymentJournals();
         List<LedgerVerificationResponse.PaymentLifecycleMismatchFinding> paymentLifecycleMismatches = findPaymentLifecycleMismatches();
-        int issueCount = unbalancedJournals.size() + mixedCurrencyJournals.size() + paymentLifecycleMismatches.size();
+        int issueCount = unbalancedJournals.size()
+                + mixedCurrencyJournals.size()
+                + duplicatePaymentJournals.size()
+                + paymentLifecycleMismatches.size();
 
         return new LedgerVerificationResponse(
                 java.time.Instant.now(),
@@ -155,6 +160,7 @@ public class LedgerService {
                 issueCount,
                 unbalancedJournals,
                 mixedCurrencyJournals,
+                duplicatePaymentJournals,
                 paymentLifecycleMismatches
         );
     }
@@ -239,6 +245,53 @@ public class LedgerService {
                 .toList();
     }
 
+    private List<LedgerVerificationResponse.DuplicatePaymentJournalFinding> findDuplicatePaymentJournals() {
+        Map<PaymentJournalKey, List<JournalTransactionEntity>> journalsByKey = new LinkedHashMap<>();
+
+        for (JournalTransactionEntity journal : journalTransactionRepository.findAllByReferenceIdStartingWithOrderByCreatedAtAsc("payment:")) {
+            UUID paymentId = parsePaymentId(journal.getReferenceId());
+            if (paymentId == null || !isTrackedPaymentLifecycleJournal(journal.getType())) {
+                continue;
+            }
+
+            journalsByKey.computeIfAbsent(
+                    new PaymentJournalKey(paymentId, journal.getType(), paymentAction(journal.getReferenceId())),
+                    ignored -> new ArrayList<>()
+            ).add(journal);
+        }
+
+        return journalsByKey.entrySet().stream()
+                .filter(entry -> entry.getValue().size() > 1)
+                .sorted(Map.Entry.comparingByKey(
+                        Comparator.comparing(PaymentJournalKey::paymentId)
+                                .thenComparing(PaymentJournalKey::journalType)
+                                .thenComparing(PaymentJournalKey::action)
+                ))
+                .map(entry -> {
+                    PaymentJournalKey key = entry.getKey();
+                    List<JournalTransactionEntity> journals = entry.getValue();
+                    List<String> referenceIds = journals.stream()
+                            .map(JournalTransactionEntity::getReferenceId)
+                            .distinct()
+                            .toList();
+                    List<UUID> journalIds = journals.stream()
+                            .map(JournalTransactionEntity::getId)
+                            .toList();
+
+                    return new LedgerVerificationResponse.DuplicatePaymentJournalFinding(
+                            key.paymentId(),
+                            key.journalType(),
+                            key.action(),
+                            referenceIds,
+                            journalIds,
+                            journals.size(),
+                            "Payment " + key.paymentId() + " has " + journals.size() + " "
+                                    + key.journalType().name() + " journals for action " + key.action()
+                    );
+                })
+                .toList();
+    }
+
     private LedgerVerificationResponse.PaymentLifecycleMismatchFinding toLifecycleMismatch(
             PaymentIntentEntity payment,
             Set<JournalType> actualJournalTypes
@@ -301,6 +354,20 @@ public class LedgerService {
         }
     }
 
+    private String paymentAction(String referenceId) {
+        if (referenceId == null || !referenceId.startsWith("payment:")) {
+            return "";
+        }
+        String[] parts = referenceId.split(":");
+        return parts.length >= 3 ? parts[2] : "";
+    }
+
+    private boolean isTrackedPaymentLifecycleJournal(JournalType journalType) {
+        return journalType == JournalType.RESERVE
+                || journalType == JournalType.CAPTURE
+                || journalType == JournalType.REVERSAL;
+    }
+
     private int symmetricDifferenceSize(Set<JournalType> left, Set<JournalType> right) {
         return difference(left, right).size() + difference(right, left).size();
     }
@@ -324,6 +391,9 @@ public class LedgerService {
 
     private BigDecimal normalizeNumeric(BigDecimal amount) {
         return amount == null ? BigDecimal.ZERO : amount.stripTrailingZeros();
+    }
+
+    private record PaymentJournalKey(UUID paymentId, JournalType journalType, String action) {
     }
 
     private List<LedgerLeg> normalizeAndValidate(List<CreateLedgerLegRequest> requestedLegs) {

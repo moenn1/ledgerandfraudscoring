@@ -140,6 +140,63 @@ class LedgerControllerIntegrationTest {
         assertThat(mismatch.get("unexpectedJournalTypes")).isEmpty();
     }
 
+    @Test
+    void verification_flagsDuplicateReserveJournalsEvenWhenLifecycleTypesMatch() throws Exception {
+        UUID payerAccountId = createAccount("duplicate-payer", "USD");
+        UUID payeeAccountId = createAccount("duplicate-payee", "USD");
+
+        PaymentIntentEntity payment = new PaymentIntentEntity();
+        payment.setPayerAccountId(payerAccountId);
+        payment.setPayeeAccountId(payeeAccountId);
+        payment.setAmount(new BigDecimal("50.00"));
+        payment.setCurrency("USD");
+        payment.setStatus(PaymentStatus.RESERVED);
+        payment.setIdempotencyKey("verification-duplicate-" + UUID.randomUUID());
+        payment = paymentIntentRepository.save(payment);
+
+        UUID holdingAccountId = createAccount("duplicate-holding", "USD");
+
+        ledgerService.createJournal(new CreateJournalRequest(
+                JournalType.RESERVE,
+                "payment:" + payment.getId() + ":reserve",
+                java.util.List.of(
+                        new CreateLedgerLegRequest(payerAccountId, LedgerDirection.DEBIT, new BigDecimal("50.00"), "USD"),
+                        new CreateLedgerLegRequest(holdingAccountId, LedgerDirection.CREDIT, new BigDecimal("50.00"), "USD")
+                )
+        ));
+        ledgerService.createJournal(new CreateJournalRequest(
+                JournalType.RESERVE,
+                "payment:" + payment.getId() + ":reserve:duplicate",
+                java.util.List.of(
+                        new CreateLedgerLegRequest(payerAccountId, LedgerDirection.DEBIT, new BigDecimal("50.00"), "USD"),
+                        new CreateLedgerLegRequest(holdingAccountId, LedgerDirection.CREDIT, new BigDecimal("50.00"), "USD")
+                )
+        ));
+
+        String response = mockMvc.perform(get("/api/ledger/verification"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode json = objectMapper.readTree(response);
+        assertThat(json.get("allChecksPassed").asBoolean()).isFalse();
+
+        JsonNode duplicate = findByField(json.get("duplicatePaymentJournals"), "paymentId", payment.getId().toString());
+        assertThat(duplicate).isNotNull();
+        assertThat(duplicate.get("journalType").asText()).isEqualTo("RESERVE");
+        assertThat(duplicate.get("action").asText()).isEqualTo("reserve");
+        assertThat(duplicate.get("duplicateCount").asInt()).isEqualTo(2);
+        assertThat(duplicate.get("referenceIds")).extracting(JsonNode::asText)
+                .containsExactly(
+                        "payment:" + payment.getId() + ":reserve",
+                        "payment:" + payment.getId() + ":reserve:duplicate"
+                );
+
+        JsonNode mismatch = findByField(json.get("paymentLifecycleMismatches"), "paymentId", payment.getId().toString());
+        assertThat(mismatch).isNull();
+    }
+
     private UUID createAccount(String ownerId, String currency) {
         AccountEntity account = new AccountEntity();
         account.setOwnerId(ownerId);
