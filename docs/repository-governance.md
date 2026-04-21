@@ -10,7 +10,7 @@ LedgerForge Payments treats CI/CD and release automation as part of production s
 
 ## GitHub Actions Coverage
 
-- `.github/workflows/governance.yml` enforces changelog and nearest-doc updates on pushes and pull requests.
+- `.github/workflows/governance.yml` enforces changelog and nearest-doc updates on pushes and pull requests, and it scopes push validation to the actual pushed commit window instead of the aggregate branch diff.
 - `.github/workflows/docs-ci.yml` verifies that repository indexes and workflow documentation stay in sync with the actual workflow inventory.
 - `.github/workflows/backend-ci.yml` runs backend tests and packages the Spring Boot artifact with Java 17.
 - `.github/workflows/frontend-ci.yml` installs frontend dependencies and builds the operator console with Node.js 20.
@@ -32,4 +32,5 @@ LedgerForge Payments treats CI/CD and release automation as part of production s
 
 - Every repository change updates `CHANGELOG.md`.
 - Every repository change updates the nearest relevant documentation in `README.md`, `docs/`, or `scripts/README.md`.
+- Push checks validate the exact pushed commit range, while pull requests continue to validate the full branch delta against the merge base with `main`.
 - CI/CD changes should document which workflow owns each validation step so operators can trace failures quickly.

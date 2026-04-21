@@ -16,6 +16,7 @@ Optional environment variables:
 - `DEFAULT_CURRENCY` (default: `USD`)
 - `IDEMPOTENCY_PREFIX` (default: `ledgerforge-local`)
 - `TIMEOUT_SECONDS` for readiness wait (default: `60`)
+- `GOVERNANCE_DOCS_BASE_REF` and `GOVERNANCE_DOCS_HEAD_REF` to override the committed diff range that `check-governance-docs.sh` validates
 
 ## Commands
 
@@ -24,6 +25,7 @@ Optional environment variables:
 - `./scripts/smoke-test.sh`: health + basic payment API checks
 - `./scripts/demo-run.sh`: runs all of the above in order
 - `./scripts/check-governance-docs.sh`: validates changelog and nearest-doc updates for workflow and code changes
+- `./scripts/check-governance-docs-test.sh`: regression-tests governance range resolution for aggregate branch diffs versus actual pushed commit windows
 - `./scripts/check-docs-index.sh`: validates that docs indexes and workflow references match the repository layout
 
 ## Notes
@@ -31,3 +33,4 @@ Optional environment variables:
 - Scripts are intentionally tolerant while backend endpoints are still evolving.
 - Failed optional API calls are logged and skipped so local iteration stays fast.
 - Governance and docs validation scripts are kept compatible with the default macOS Bash runtime as well as GitHub-hosted runners.
+- GitHub Actions passes the pushed `before` and `after` SHAs into `check-governance-docs.sh`, so a later code-only push cannot inherit an earlier docs update from the same branch.

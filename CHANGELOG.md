@@ -24,6 +24,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Ledger invariants documentation now includes the operator recovery flow for `/api/ledger/replay/accounts/{accountId}` and `/api/ledger/verification`.
 
 ### Fixed
+- Governance push validation now checks the actual pushed commit range instead of the aggregate branch diff, and docs CI runs a regression script that covers the multi-commit push case.
 - Governance documentation validation now uses Bash 3 compatible iteration so the same check runs on macOS workstations and GitHub-hosted Linux runners.
 - Backend payment integration tests now use transactional rollback so idempotency assertions stay isolated across test methods.
 - Frontend analytics typing now preserves `PaymentStatus` keys through grouped status rollups so the production build passes in CI.

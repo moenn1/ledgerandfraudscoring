@@ -39,7 +39,13 @@ jobs:
           fetch-depth: 0
 
       - name: Validate changelog and documentation policy
+        env:
+          GOVERNANCE_DOCS_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          GOVERNANCE_DOCS_HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: ./scripts/check-governance-docs.sh
+
+      - name: Run governance range regression checks
+        run: ./scripts/check-governance-docs-test.sh
 
       - name: Validate documentation coverage indexes
         run: ./scripts/check-docs-index.sh

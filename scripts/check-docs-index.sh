@@ -31,5 +31,6 @@ done < <(find ".github/workflows" -maxdepth 1 -type f \( -name "*.yml" -o -name 
 
 assert_contains "scripts/README.md" "\`./scripts/check-docs-index.sh\`" "scripts/README.md"
 assert_contains "scripts/README.md" "\`./scripts/check-governance-docs.sh\`" "scripts/README.md"
+assert_contains "scripts/README.md" "\`./scripts/check-governance-docs-test.sh\`" "scripts/README.md"
 
 echo "Documentation coverage checks passed."
