@@ -15,13 +15,15 @@ Optional environment variables:
 - `API_BASE_URL` (default: `http://127.0.0.1:8080`)
 - `DEFAULT_CURRENCY` (default: `USD`)
 - `IDEMPOTENCY_PREFIX` (default: `ledgerforge-local`)
+- `PAYER_OWNER_ID` / `PAYEE_OWNER_ID` for demo seeding account owners
+- `SMOKE_PAYMENT_AMOUNT_CENTS` for the smoke payment amount (default: `500`)
 - `TIMEOUT_SECONDS` for readiness wait (default: `60`)
 
 ## Commands
 
 - `./scripts/wait-for-backend.sh`: waits for `/actuator/health` (fallback `/api/health`)
-- `./scripts/seed-demo.sh`: tries to create demo accounts and one payment
-- `./scripts/smoke-test.sh`: health + basic payment API checks
+- `./scripts/seed-demo.sh`: creates demo accounts against `/api/accounts` and drives a sample payment lifecycle when the backend supports it
+- `./scripts/smoke-test.sh`: health + account creation + payment create/confirm/capture + ledger verification checks
 - `./scripts/demo-run.sh`: runs all of the above in order
 - `./scripts/check-governance-docs.sh`: validates changelog and nearest-doc updates for workflow and code changes
 - `./scripts/check-docs-index.sh`: validates that docs indexes and workflow references match the repository layout
@@ -29,5 +31,5 @@ Optional environment variables:
 ## Notes
 
 - Scripts are intentionally tolerant while backend endpoints are still evolving.
-- Failed optional API calls are logged and skipped so local iteration stays fast.
+- `seed-demo.sh` stays tolerant for local iteration, while `smoke-test.sh` is the stricter release and CI gate.
 - Governance and docs validation scripts are kept compatible with the default macOS Bash runtime as well as GitHub-hosted runners.

@@ -18,16 +18,18 @@ React + TypeScript operator dashboard for the LedgerForge payments platform.
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
 The app runs on `http://127.0.0.1:5173` by default.
+If your environment needs an internal npm mirror, override `npm_config_registry` for the install command without changing the committed lockfile.
 
 ## Build
 
 ```bash
 cd frontend
+npm ci
 npm run build
 npm run preview
 ```

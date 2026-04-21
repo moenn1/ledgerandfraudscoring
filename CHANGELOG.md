@@ -18,6 +18,9 @@ All notable changes to LedgerForge Payments should be recorded here.
 ### Changed
 - Repository indexes and script docs now describe the CI/CD workflow suite and governance checker entrypoint.
 - GitHub Actions quality gates now cancel superseded branch runs, preserve backend test reports on failure, and publish release bundles with versioned filenames plus SHA-256 manifests.
+- Frontend delivery automation now uses a committed portable lockfile with `npm ci`, npm cache reuse, and repo-level npm registry settings that avoid host-specific tarball URLs in version control.
+- Demo smoke automation now creates real accounts, executes payment create/confirm/capture transitions, and fails the gate when ledger verification reports issues.
+- Release automation now reruns the backend smoke gate before assembling or publishing artifacts.
 - Frontend operator docs now document hybrid API mode, optional bearer-token configuration, and live refresh behavior after manual-review decisions.
 - Repository-facing docs now use product and implementation language only, without internal workflow references.
 - Payment lifecycle docs now reflect the implemented confirm flow reserving funds, manual-review holds, and cancel guards.

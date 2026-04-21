@@ -49,3 +49,47 @@ rand_id() {
     date +%s%N
   fi
 }
+
+json_field() {
+  local path="$1"
+
+  python3 -c '
+import json
+import sys
+
+path = [segment for segment in sys.argv[1].split(".") if segment]
+payload = sys.stdin.read() or "{}"
+value = json.loads(payload)
+
+for segment in path:
+    if isinstance(value, dict):
+        value = value.get(segment, "")
+    elif isinstance(value, list):
+        try:
+            value = value[int(segment)]
+        except (ValueError, IndexError):
+            value = ""
+    else:
+        value = ""
+        break
+
+if value is None:
+    print("")
+elif isinstance(value, bool):
+    print("true" if value else "false")
+elif isinstance(value, (dict, list)):
+    print(json.dumps(value))
+else:
+    print(value)
+' "$path"
+}
+
+json_array_length() {
+  python3 -c '
+import json
+import sys
+
+value = json.loads(sys.stdin.read() or "[]")
+print(len(value) if isinstance(value, list) else 0)
+'
+}
