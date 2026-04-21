@@ -34,7 +34,7 @@ Backoff is exponential from the base delay and capped by the max delay. With the
 
 ## Metrics and Telemetry
 
-Actuator and Prometheus now expose:
+Actuator now exposes:
 
 - `ledgerforge.outbox.queue.depth`
 - `ledgerforge.outbox.queue.lag.seconds`
@@ -43,6 +43,8 @@ Actuator and Prometheus now expose:
 - `ledgerforge.outbox.publish.dead_letter`
 
 Queue lag is calculated from the oldest pending row by `created_at`, which makes it suitable for paging on delivery stalls even when the ledger itself remains correct.
+
+If you ship metrics to another collector, scrape or bridge the Actuator metrics endpoint instead of relying on the relay logs alone.
 
 The default `OutboxPublisher` implementation writes publish-ready payloads to application logs. Replace that bean with a broker-specific publisher when integrating Kafka, RabbitMQ, or another transport.
 

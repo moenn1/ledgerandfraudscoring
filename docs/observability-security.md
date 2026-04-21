@@ -2,17 +2,11 @@
 
 ## Observability
 
-### Required Telemetry
+### Implemented Telemetry
 
-- Distributed tracing with correlation IDs (`payment_id`, `journal_id`, `account_id`)
-- Structured logs (JSON) with stable field names
-- Metrics:
-  - payment create/confirm/capture latency
-  - approval/review/reject rates
-  - fraud timeout/error rates
-  - reconciliation mismatches
-  - outbox queue depth and lag
-  - outbox publish success, retry, and dead-letter counts
+- Correlation IDs at API ingress via `X-Correlation-Id`
+- Request-completion logs with stable key-value fields
+- Actuator metrics for payment lifecycle, fraud review, outbox backlog, and ledger verification health
 
 ### Trace Propagation
 
@@ -21,7 +15,61 @@
 - Include correlation id in audit events and operator timeline payloads.
 - Persist payment mutation outbox rows for reserve/capture/refund/cancel so reconciliation can compare downstream event durability against posted ledger mutations.
 - Use the same `payment.reserved` audit and outbox events for manual-review approvals that post a reserve journal, so reserved funds remain reconcilable regardless of whether approval was automated or operator-driven.
-- The outbox relay now exports `ledgerforge.outbox.queue.depth`, `ledgerforge.outbox.queue.lag.seconds`, `ledgerforge.outbox.publish.success`, `ledgerforge.outbox.publish.retry`, and `ledgerforge.outbox.publish.dead_letter` through Actuator metrics and Prometheus scraping.
+- The backend now echoes `X-Correlation-Id` on `/api/**` responses and logs request completion with `method`, `path`, `status`, `duration_ms`, `correlation_id`, `operator`, and `idempotency_key`.
+
+### Metric Inventory
+
+Query metrics through `/actuator/metrics/{name}`.
+
+Payment domain:
+
+- `ledgerforge.payment.operation.latency` tagged by `operation` and `outcome`
+- `ledgerforge.payment.lifecycle.time_to_status` tagged by `status` and `risk_decision`
+- `ledgerforge.payment.outcome.total` tagged by `status` and `risk_decision`
+
+Fraud domain:
+
+- `ledgerforge.fraud.scoring.latency` tagged by `decision`
+- `ledgerforge.fraud.scoring.outcome.total` tagged by `decision`
+- `ledgerforge.fraud.scoring.failure.total`
+- `ledgerforge.fraud.review.queue.depth`
+- `ledgerforge.fraud.review.queue.age.seconds`
+- `ledgerforge.fraud.review.case.opened`
+- `ledgerforge.fraud.review.case.decided` tagged by `decision`
+- `ledgerforge.fraud.review.case.open_duration` tagged by `decision`
+
+Outbox domain:
+
+- `ledgerforge.outbox.queue.depth`
+- `ledgerforge.outbox.queue.lag.seconds`
+- `ledgerforge.outbox.publish.success`
+- `ledgerforge.outbox.publish.retry`
+- `ledgerforge.outbox.publish.dead_letter`
+
+Ledger verification and reconciliation:
+
+- `ledgerforge.ledger.verification.latency` tagged by `result`
+- `ledgerforge.ledger.verification.last.issue_count`
+- `ledgerforge.ledger.verification.last.healthy`
+- `ledgerforge.ledger.verification.last.run.epoch.seconds`
+- `ledgerforge.ledger.verification.last.finding_count` tagged by `category`
+
+Finding categories currently emitted are:
+
+- `unbalanced_journals`
+- `mixed_currency_journals`
+- `account_currency_mismatches`
+- `duplicate_payment_journals`
+- `mutation_event_reconciliation_findings`
+- `payment_lifecycle_mismatches`
+
+### Alerting Expectations
+
+- Page when `ledgerforge.outbox.queue.lag.seconds` keeps climbing or `ledgerforge.outbox.publish.dead_letter` increases during normal traffic.
+- Page when `ledgerforge.fraud.review.queue.depth` or `ledgerforge.fraud.review.queue.age.seconds` breaches the team review SLA.
+- Investigate when `ledgerforge.fraud.scoring.failure.total` increments, because payment confirmation will only stay reliable if fraud decisions keep persisting.
+- Treat any `ledgerforge.ledger.verification.last.issue_count` above `0` or `ledgerforge.ledger.verification.last.healthy` equal to `0` as a reconciliation incident until operators review the finding categories.
+- Alert when `ledgerforge.ledger.verification.last.run.epoch.seconds` becomes stale enough that operators no longer have a recent ledger verification signal.
 
 ### Audit Event Standard
 

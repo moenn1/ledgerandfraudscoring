@@ -4,6 +4,8 @@ import com.ledgerforge.payments.account.AccountEntity;
 import com.ledgerforge.payments.account.AccountService;
 import com.ledgerforge.payments.audit.AuditService;
 import com.ledgerforge.payments.common.api.ApiException;
+import com.ledgerforge.payments.common.telemetry.FraudMetrics;
+import com.ledgerforge.payments.common.telemetry.PaymentMetrics;
 import com.ledgerforge.payments.fraud.api.ReviewDecisionRequest;
 import com.ledgerforge.payments.ledger.JournalTransactionEntity;
 import com.ledgerforge.payments.ledger.JournalType;
@@ -35,19 +37,25 @@ public class ManualReviewService {
     private final LedgerService ledgerService;
     private final AuditService auditService;
     private final OutboxService outboxService;
+    private final FraudMetrics fraudMetrics;
+    private final PaymentMetrics paymentMetrics;
 
     public ManualReviewService(ReviewCaseRepository reviewCaseRepository,
                                PaymentIntentRepository paymentIntentRepository,
                                AccountService accountService,
                                LedgerService ledgerService,
                                AuditService auditService,
-                               OutboxService outboxService) {
+                               OutboxService outboxService,
+                               FraudMetrics fraudMetrics,
+                               PaymentMetrics paymentMetrics) {
         this.reviewCaseRepository = reviewCaseRepository;
         this.paymentIntentRepository = paymentIntentRepository;
         this.accountService = accountService;
         this.ledgerService = ledgerService;
         this.auditService = auditService;
         this.outboxService = outboxService;
+        this.fraudMetrics = fraudMetrics;
+        this.paymentMetrics = paymentMetrics;
     }
 
     @Transactional(readOnly = true)
@@ -83,6 +91,7 @@ public class ManualReviewService {
                         "assignedTo", saved.getAssignedTo()
                 )
         );
+        fraudMetrics.recordReviewCaseOpened();
         return saved;
     }
 
@@ -148,7 +157,12 @@ public class ManualReviewService {
 
         if (reserveJournal != null) {
             emitReservedPaymentMutationEvent(savedPayment, savedReviewCase, request, reserveJournal, correlationId, actorId);
+            paymentMetrics.recordOutcome(savedPayment);
+        } else {
+            paymentMetrics.recordOutcome(savedPayment);
         }
+
+        fraudMetrics.recordReviewDecision(savedReviewCase, request.decision());
 
         return savedReviewCase;
     }

@@ -6,6 +6,7 @@ import com.ledgerforge.payments.account.AccountStatus;
 import com.ledgerforge.payments.audit.AuditEventEntity;
 import com.ledgerforge.payments.audit.AuditEventRepository;
 import com.ledgerforge.payments.common.api.ApiException;
+import com.ledgerforge.payments.common.telemetry.LedgerVerificationMetrics;
 import com.ledgerforge.payments.outbox.OutboxEventEntity;
 import com.ledgerforge.payments.outbox.OutboxEventRepository;
 import com.ledgerforge.payments.payment.PaymentIntentEntity;
@@ -38,6 +39,7 @@ public class LedgerService {
     private final PaymentIntentRepository paymentIntentRepository;
     private final AuditEventRepository auditEventRepository;
     private final OutboxEventRepository outboxEventRepository;
+    private final LedgerVerificationMetrics ledgerVerificationMetrics;
 
     public LedgerService(
             JournalTransactionRepository journalTransactionRepository,
@@ -45,7 +47,8 @@ public class LedgerService {
             AccountRepository accountRepository,
             PaymentIntentRepository paymentIntentRepository,
             AuditEventRepository auditEventRepository,
-            OutboxEventRepository outboxEventRepository
+            OutboxEventRepository outboxEventRepository,
+            LedgerVerificationMetrics ledgerVerificationMetrics
     ) {
         this.journalTransactionRepository = journalTransactionRepository;
         this.ledgerEntryRepository = ledgerEntryRepository;
@@ -53,6 +56,7 @@ public class LedgerService {
         this.paymentIntentRepository = paymentIntentRepository;
         this.auditEventRepository = auditEventRepository;
         this.outboxEventRepository = outboxEventRepository;
+        this.ledgerVerificationMetrics = ledgerVerificationMetrics;
     }
 
     @Transactional(readOnly = true)
@@ -111,6 +115,7 @@ public class LedgerService {
 
     @Transactional(readOnly = true)
     public LedgerVerificationResponse verifyLedger() {
+        io.micrometer.core.instrument.Timer.Sample sample = ledgerVerificationMetrics.startVerification();
         List<Object[]> unbalancedRows = ledgerEntryRepository.findUnbalancedJournalAggregates();
         List<Object[]> mixedCurrencyRows = ledgerEntryRepository.findMixedCurrencyJournalAggregates();
         List<LedgerVerificationResponse.AccountCurrencyMismatchFinding> accountCurrencyMismatches =
@@ -170,7 +175,7 @@ public class LedgerService {
                 + mutationEventReconciliationFindings.size()
                 + paymentLifecycleMismatches.size();
 
-        return new LedgerVerificationResponse(
+        LedgerVerificationResponse response = new LedgerVerificationResponse(
                 java.time.Instant.now(),
                 journalTransactionRepository.count(),
                 ledgerEntryRepository.count(),
@@ -183,6 +188,8 @@ public class LedgerService {
                 mutationEventReconciliationFindings,
                 paymentLifecycleMismatches
         );
+        ledgerVerificationMetrics.recordVerification(response, sample);
+        return response;
     }
 
     @Transactional

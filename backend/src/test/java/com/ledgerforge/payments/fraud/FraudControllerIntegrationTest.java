@@ -78,6 +78,19 @@ class FraudControllerIntegrationTest {
                 .andExpect(jsonPath("$.status").value("RISK_SCORING"))
                 .andExpect(jsonPath("$.riskDecision").value("REVIEW"));
 
+        mockMvc.perform(get("/actuator/metrics/ledgerforge.fraud.review.queue.depth"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.measurements[0].value").value(1.0));
+
+        mockMvc.perform(get("/actuator/metrics/ledgerforge.fraud.review.case.opened"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.measurements[0].value").value(1.0));
+
+        mockMvc.perform(get("/actuator/metrics/ledgerforge.fraud.scoring.outcome.total")
+                        .param("tag", "decision:REVIEW"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.measurements[0].value").value(1.0));
+
         ReviewCaseEntity reviewCase = reviewCaseRepository.findQueue().stream()
                 .filter(candidate -> paymentId.equals(candidate.getPaymentId().toString()))
                 .findFirst()
@@ -94,6 +107,15 @@ class FraudControllerIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("APPROVED"));
+
+        mockMvc.perform(get("/actuator/metrics/ledgerforge.fraud.review.case.decided")
+                        .param("tag", "decision:APPROVE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.measurements[0].value").value(1.0));
+
+        mockMvc.perform(get("/actuator/metrics/ledgerforge.fraud.review.queue.depth"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.measurements[0].value").value(0.0));
 
         mockMvc.perform(get("/api/payments/{id}", paymentId)
                         .header("Authorization", TestOperatorTokens.bearer("viewer.review@ledgerforge.local", "VIEWER")))

@@ -178,6 +178,19 @@ class LedgerControllerIntegrationTest {
         assertThat(mismatch.get("actualJournalTypes")).isEmpty();
         assertThat(mismatch.get("missingJournalTypes")).extracting(JsonNode::asText).containsExactly("CAPTURE", "RESERVE");
         assertThat(mismatch.get("unexpectedJournalTypes")).isEmpty();
+
+        mockMvc.perform(get("/actuator/metrics/ledgerforge.ledger.verification.last.issue_count"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.measurements[0].value").value(3.0));
+
+        mockMvc.perform(get("/actuator/metrics/ledgerforge.ledger.verification.last.healthy"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.measurements[0].value").value(0.0));
+
+        mockMvc.perform(get("/actuator/metrics/ledgerforge.ledger.verification.last.finding_count")
+                        .param("tag", "category:unbalanced_journals"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.measurements[0].value").value(1.0));
     }
 
     @Test

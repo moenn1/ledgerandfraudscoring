@@ -7,15 +7,22 @@ import java.util.UUID;
 public final class CorrelationIds {
 
     public static final String HEADER = "X-Correlation-Id";
+    public static final String ATTRIBUTE = CorrelationIds.class.getName() + ".value";
 
     private CorrelationIds() {
     }
 
     public static String resolve(HttpServletRequest request) {
+        Object current = request.getAttribute(ATTRIBUTE);
+        if (current instanceof String value && !value.isBlank()) {
+            return value;
+        }
+
         String value = request.getHeader(HEADER);
         if (value == null || value.isBlank()) {
-            return UUID.randomUUID().toString();
+            value = UUID.randomUUID().toString();
         }
+        request.setAttribute(ATTRIBUTE, value);
         return value;
     }
 }

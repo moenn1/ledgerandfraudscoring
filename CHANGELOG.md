@@ -5,6 +5,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 ## Unreleased
 
 ### Added
+- Domain telemetry for payment lifecycle latency and outcomes, fraud scoring and review queues, ledger verification findings, and correlation-aware API request diagnostics through Actuator metrics.
 - An async outbox relay on `outbox_events` with lease-based claiming, bounded retry backoff, dead-letter tracking, admin recovery endpoints, and queue lag/depth delivery metrics.
 - GitHub Actions workflows for governance checks, backend test/package validation, frontend build validation, backend demo smoke coverage, and tagged release artifact publishing.
 - A dedicated documentation CI workflow and validation script that keep workflow coverage, docs indexes, and the changelog entrypoint aligned.
@@ -19,6 +20,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - JWT-backed operator authentication and RBAC for capture/refund/cancel, fraud review decisions, and ledger replay/verification endpoints, plus a local token generator script for development.
 
 ### Changed
+- Observability docs now enumerate the supported Actuator metric names, request-log correlation fields, and alerting expectations for payment, fraud, outbox, and ledger verification signals.
 - Event-delivery, observability, and failure-recovery docs now describe the implemented outbox relay controls, metric names, and operator requeue workflow.
 - Repository indexes and script docs now describe the CI/CD workflow suite and governance checker entrypoint.
 - GitHub Actions quality gates now cancel superseded branch runs, preserve backend test reports on failure, and publish release bundles with versioned filenames plus SHA-256 manifests.

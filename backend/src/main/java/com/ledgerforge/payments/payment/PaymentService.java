@@ -4,6 +4,8 @@ import com.ledgerforge.payments.account.AccountEntity;
 import com.ledgerforge.payments.account.AccountService;
 import com.ledgerforge.payments.audit.AuditService;
 import com.ledgerforge.payments.common.api.ApiException;
+import com.ledgerforge.payments.common.telemetry.FraudMetrics;
+import com.ledgerforge.payments.common.telemetry.PaymentMetrics;
 import com.ledgerforge.payments.fraud.FraudEvaluation;
 import com.ledgerforge.payments.fraud.FraudReason;
 import com.ledgerforge.payments.fraud.FraudScoringService;
@@ -42,6 +44,8 @@ public class PaymentService {
     private final OutboxService outboxService;
     private final FraudScoringService fraudScoringService;
     private final ManualReviewService manualReviewService;
+    private final PaymentMetrics paymentMetrics;
+    private final FraudMetrics fraudMetrics;
 
     public PaymentService(PaymentIntentRepository paymentRepository,
                           AccountService accountService,
@@ -50,7 +54,9 @@ public class PaymentService {
                           AuditService auditService,
                           OutboxService outboxService,
                           FraudScoringService fraudScoringService,
-                          ManualReviewService manualReviewService) {
+                          ManualReviewService manualReviewService,
+                          PaymentMetrics paymentMetrics,
+                          FraudMetrics fraudMetrics) {
         this.paymentRepository = paymentRepository;
         this.accountService = accountService;
         this.ledgerService = ledgerService;
@@ -59,6 +65,8 @@ public class PaymentService {
         this.outboxService = outboxService;
         this.fraudScoringService = fraudScoringService;
         this.manualReviewService = manualReviewService;
+        this.paymentMetrics = paymentMetrics;
+        this.fraudMetrics = fraudMetrics;
     }
 
     @Transactional
@@ -99,6 +107,7 @@ public class PaymentService {
                         "currency", saved.getCurrency()
                 )
         );
+        paymentMetrics.recordOutcome(saved);
         return saved;
     }
 
@@ -135,136 +144,168 @@ public class PaymentService {
                                        ConfirmPaymentRequest request,
                                        String idempotencyKey,
                                        String correlationId) {
+        io.micrometer.core.instrument.Timer.Sample sample = paymentMetrics.startOperation();
+        String operationOutcome = "error";
         ConfirmPaymentRequest normalizedRequest = request == null
                 ? new ConfirmPaymentRequest(null, null, null, null, null)
                 : request;
 
         String scope = mutationScope("confirm", paymentId);
         String fingerprint = confirmFingerprint(normalizedRequest);
-        if (idempotencyService.isReplay(scope, idempotencyKey, fingerprint)) {
-            return getOrFail(paymentId);
-        }
+        try {
+            if (idempotencyService.isReplay(scope, idempotencyKey, fingerprint)) {
+                operationOutcome = "idempotent";
+                return getOrFail(paymentId);
+            }
 
-        PaymentIntentEntity payment = getOrFail(paymentId);
-        ensureStatus(payment, PaymentStatus.CREATED, "confirm");
+            PaymentIntentEntity payment = getOrFail(paymentId);
+            ensureStatus(payment, PaymentStatus.CREATED, "confirm");
 
-        AccountEntity payer = accountService.getOrFail(payment.getPayerAccountId());
+            AccountEntity payer = accountService.getOrFail(payment.getPayerAccountId());
 
-        payment.setStatus(PaymentStatus.VALIDATED);
-        payment.setStatus(PaymentStatus.RISK_SCORING);
-
-        FraudEvaluation evaluation = fraudScoringService.score(payment, normalizedRequest, payer.getCreatedAt());
-        payment.setRiskDecision(evaluation.decision());
-        payment.setRiskScore(evaluation.score());
-
-        if (evaluation.decision() == RiskDecision.REJECT) {
-            payment.setStatus(PaymentStatus.REJECTED);
-            payment.setFailureReason(riskReasonSummary(evaluation.reasons()));
-            PaymentIntentEntity saved = paymentRepository.save(payment);
-            recordMutation(scope, idempotencyKey, fingerprint, saved);
-            auditService.append(
-                    "payment.rejected",
-                    saved.getId(),
-                    saved.getPayerAccountId(),
-                    null,
-                    correlationId,
-                    Map.of(
-                            "riskScore", saved.getRiskScore(),
-                            "riskDecision", saved.getRiskDecision().name(),
-                            "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
-                    )
-            );
-            return saved;
-        }
-
-        if (evaluation.decision() == RiskDecision.REVIEW) {
+            payment.setStatus(PaymentStatus.VALIDATED);
             payment.setStatus(PaymentStatus.RISK_SCORING);
-            payment.setFailureReason("Pending manual review");
+
+            io.micrometer.core.instrument.Timer.Sample fraudSample = fraudMetrics.startScoring();
+            FraudEvaluation evaluation;
+            try {
+                evaluation = fraudScoringService.score(payment, normalizedRequest, payer.getCreatedAt());
+                fraudMetrics.recordScoringDecision(evaluation.decision(), fraudSample);
+            } catch (RuntimeException ex) {
+                fraudMetrics.recordScoringFailure(fraudSample);
+                throw ex;
+            }
+
+            payment.setRiskDecision(evaluation.decision());
+            payment.setRiskScore(evaluation.score());
+
+            if (evaluation.decision() == RiskDecision.REJECT) {
+                payment.setStatus(PaymentStatus.REJECTED);
+                payment.setFailureReason(riskReasonSummary(evaluation.reasons()));
+                PaymentIntentEntity saved = paymentRepository.save(payment);
+                recordMutation(scope, idempotencyKey, fingerprint, saved);
+                auditService.append(
+                        "payment.rejected",
+                        saved.getId(),
+                        saved.getPayerAccountId(),
+                        null,
+                        correlationId,
+                        Map.of(
+                                "riskScore", saved.getRiskScore(),
+                                "riskDecision", saved.getRiskDecision().name(),
+                                "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
+                        )
+                );
+                paymentMetrics.recordOutcome(saved);
+                operationOutcome = "rejected";
+                return saved;
+            }
+
+            if (evaluation.decision() == RiskDecision.REVIEW) {
+                payment.setStatus(PaymentStatus.RISK_SCORING);
+                payment.setFailureReason("Pending manual review");
+                PaymentIntentEntity saved = paymentRepository.save(payment);
+                manualReviewService.openCaseIfAbsent(saved, evaluation.reasons(), correlationId);
+                recordMutation(scope, idempotencyKey, fingerprint, saved);
+                auditService.append(
+                        "payment.review_required",
+                        saved.getId(),
+                        saved.getPayerAccountId(),
+                        null,
+                        correlationId,
+                        Map.of(
+                                "riskScore", saved.getRiskScore(),
+                                "riskDecision", saved.getRiskDecision().name(),
+                                "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
+                        )
+                );
+                paymentMetrics.recordOutcome(saved);
+                operationOutcome = "review";
+                return saved;
+            }
+
+            payment.setStatus(PaymentStatus.APPROVED);
+            payment.setFailureReason(null);
+
+            JournalResponse reserveJournal = reserveFunds(payment, referenceId(payment.getId(), "reserve"));
+
+            payment.setStatus(PaymentStatus.RESERVED);
             PaymentIntentEntity saved = paymentRepository.save(payment);
-            manualReviewService.openCaseIfAbsent(saved, evaluation.reasons(), correlationId);
             recordMutation(scope, idempotencyKey, fingerprint, saved);
-            auditService.append(
-                    "payment.review_required",
-                    saved.getId(),
-                    saved.getPayerAccountId(),
-                    null,
+
+            emitPaymentMutationEvent(
+                    "payment.reserved",
+                    saved,
+                    reserveJournal.id(),
                     correlationId,
                     Map.of(
+                            "status", saved.getStatus().name(),
                             "riskScore", saved.getRiskScore(),
                             "riskDecision", saved.getRiskDecision().name(),
                             "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
                     )
             );
+            paymentMetrics.recordOutcome(saved);
+            operationOutcome = "reserved";
             return saved;
+        } finally {
+            paymentMetrics.recordOperation("confirm", operationOutcome, sample);
         }
-
-        payment.setStatus(PaymentStatus.APPROVED);
-        payment.setFailureReason(null);
-
-        JournalResponse reserveJournal = reserveFunds(payment, referenceId(payment.getId(), "reserve"));
-
-        payment.setStatus(PaymentStatus.RESERVED);
-        PaymentIntentEntity saved = paymentRepository.save(payment);
-        recordMutation(scope, idempotencyKey, fingerprint, saved);
-
-        emitPaymentMutationEvent(
-                "payment.reserved",
-                saved,
-                reserveJournal.id(),
-                correlationId,
-                Map.of(
-                        "status", saved.getStatus().name(),
-                        "riskScore", saved.getRiskScore(),
-                        "riskDecision", saved.getRiskDecision().name(),
-                        "reasonCodes", evaluation.reasons().stream().map(FraudReason::code).toList()
-                )
-        );
-        return saved;
     }
 
     @Transactional
     public PaymentIntentEntity capture(UUID paymentId, String idempotencyKey, String correlationId) {
+        io.micrometer.core.instrument.Timer.Sample sample = paymentMetrics.startOperation();
+        String operationOutcome = "error";
         String scope = mutationScope("capture", paymentId);
         String fingerprint = "capture";
-        if (idempotencyService.isReplay(scope, idempotencyKey, fingerprint)) {
-            return getOrFail(paymentId);
+        try {
+            if (idempotencyService.isReplay(scope, idempotencyKey, fingerprint)) {
+                operationOutcome = "idempotent";
+                return getOrFail(paymentId);
+            }
+
+            PaymentIntentEntity payment = getOrFail(paymentId);
+            if (payment.getStatus() == PaymentStatus.CAPTURED || payment.getStatus() == PaymentStatus.SETTLED) {
+                recordMutation(scope, idempotencyKey, fingerprint, payment);
+                operationOutcome = "already_captured";
+                return payment;
+            }
+            ensureStatus(payment, PaymentStatus.RESERVED, "capture");
+
+            AccountEntity holdingAccount = accountService.getSystemHoldingAccount(payment.getCurrency());
+            AccountEntity revenueAccount = accountService.getSystemRevenueAccount(payment.getCurrency());
+
+            BigDecimal fee = calculateFee(payment.getAmount());
+            BigDecimal net = payment.getAmount().subtract(fee);
+
+            JournalResponse captureJournal = ledgerService.createJournal(new CreateJournalRequest(
+                    JournalType.CAPTURE,
+                    referenceId(payment.getId(), "capture"),
+                    List.of(
+                            new CreateLedgerLegRequest(holdingAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, payment.getAmount(), payment.getCurrency()),
+                            new CreateLedgerLegRequest(payment.getPayeeAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, net, payment.getCurrency()),
+                            new CreateLedgerLegRequest(revenueAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, fee, payment.getCurrency())
+                    )
+            ));
+
+            payment.setStatus(PaymentStatus.CAPTURED);
+            PaymentIntentEntity saved = paymentRepository.save(payment);
+            recordMutation(scope, idempotencyKey, fingerprint, saved);
+
+            emitPaymentMutationEvent(
+                    "payment.captured",
+                    saved,
+                    captureJournal.id(),
+                    correlationId,
+                    Map.of("status", saved.getStatus().name(), "fee", fee)
+            );
+            paymentMetrics.recordOutcome(saved);
+            operationOutcome = "captured";
+            return saved;
+        } finally {
+            paymentMetrics.recordOperation("capture", operationOutcome, sample);
         }
-
-        PaymentIntentEntity payment = getOrFail(paymentId);
-        if (payment.getStatus() == PaymentStatus.CAPTURED || payment.getStatus() == PaymentStatus.SETTLED) {
-            recordMutation(scope, idempotencyKey, fingerprint, payment);
-            return payment;
-        }
-        ensureStatus(payment, PaymentStatus.RESERVED, "capture");
-
-        AccountEntity holdingAccount = accountService.getSystemHoldingAccount(payment.getCurrency());
-        AccountEntity revenueAccount = accountService.getSystemRevenueAccount(payment.getCurrency());
-
-        BigDecimal fee = calculateFee(payment.getAmount());
-        BigDecimal net = payment.getAmount().subtract(fee);
-
-        JournalResponse captureJournal = ledgerService.createJournal(new CreateJournalRequest(
-                JournalType.CAPTURE,
-                referenceId(payment.getId(), "capture"),
-                List.of(
-                        new CreateLedgerLegRequest(holdingAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, payment.getAmount(), payment.getCurrency()),
-                        new CreateLedgerLegRequest(payment.getPayeeAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, net, payment.getCurrency()),
-                        new CreateLedgerLegRequest(revenueAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, fee, payment.getCurrency())
-                )
-        ));
-
-        payment.setStatus(PaymentStatus.CAPTURED);
-        PaymentIntentEntity saved = paymentRepository.save(payment);
-        recordMutation(scope, idempotencyKey, fingerprint, saved);
-
-        emitPaymentMutationEvent(
-                "payment.captured",
-                saved,
-                captureJournal.id(),
-                correlationId,
-                Map.of("status", saved.getStatus().name(), "fee", fee)
-        );
-        return saved;
     }
 
     @Transactional
@@ -272,109 +313,131 @@ public class PaymentService {
                                       RefundPaymentRequest request,
                                       String idempotencyKey,
                                       String correlationId) {
+        io.micrometer.core.instrument.Timer.Sample sample = paymentMetrics.startOperation();
+        String operationOutcome = "error";
         BigDecimal requestedAmount = resolveOptionalAmount(request.amount(), request.amountCents());
         String fingerprint = "refund:" + (requestedAmount == null ? "FULL" : requestedAmount.toPlainString()) + ":" + nullToBlank(request.reason());
         String scope = mutationScope("refund", paymentId);
-        if (idempotencyService.isReplay(scope, idempotencyKey, fingerprint)) {
-            return getOrFail(paymentId);
+        try {
+            if (idempotencyService.isReplay(scope, idempotencyKey, fingerprint)) {
+                operationOutcome = "idempotent";
+                return getOrFail(paymentId);
+            }
+
+            PaymentIntentEntity payment = getOrFail(paymentId);
+            if (payment.getStatus() == PaymentStatus.REFUNDED) {
+                recordMutation(scope, idempotencyKey, fingerprint, payment);
+                operationOutcome = "already_refunded";
+                return payment;
+            }
+            if (payment.getStatus() != PaymentStatus.CAPTURED && payment.getStatus() != PaymentStatus.SETTLED) {
+                throw new ApiException(HttpStatus.CONFLICT, "Refund only allowed after capture/settlement");
+            }
+
+            if (requestedAmount != null && requestedAmount.compareTo(payment.getAmount()) != 0) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Partial refunds are not supported in this MVP");
+            }
+
+            BigDecimal fee = calculateFee(payment.getAmount());
+            BigDecimal net = payment.getAmount().subtract(fee);
+            AccountEntity revenueAccount = accountService.getSystemRevenueAccount(payment.getCurrency());
+
+            JournalResponse refundJournal = ledgerService.createJournal(new CreateJournalRequest(
+                    JournalType.REFUND,
+                    referenceId(payment.getId(), "refund"),
+                    List.of(
+                            new CreateLedgerLegRequest(payment.getPayeeAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, net, payment.getCurrency()),
+                            new CreateLedgerLegRequest(revenueAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, fee, payment.getCurrency()),
+                            new CreateLedgerLegRequest(payment.getPayerAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, payment.getAmount(), payment.getCurrency())
+                    )
+            ));
+
+            payment.setStatus(PaymentStatus.REFUNDED);
+            PaymentIntentEntity saved = paymentRepository.save(payment);
+            recordMutation(scope, idempotencyKey, fingerprint, saved);
+
+            emitPaymentMutationEvent(
+                    "payment.refunded",
+                    saved,
+                    refundJournal.id(),
+                    correlationId,
+                    Map.of("status", saved.getStatus().name(), "reason", nullToBlank(request.reason()))
+            );
+            paymentMetrics.recordOutcome(saved);
+            operationOutcome = "refunded";
+            return saved;
+        } finally {
+            paymentMetrics.recordOperation("refund", operationOutcome, sample);
         }
-
-        PaymentIntentEntity payment = getOrFail(paymentId);
-        if (payment.getStatus() == PaymentStatus.REFUNDED) {
-            recordMutation(scope, idempotencyKey, fingerprint, payment);
-            return payment;
-        }
-        if (payment.getStatus() != PaymentStatus.CAPTURED && payment.getStatus() != PaymentStatus.SETTLED) {
-            throw new ApiException(HttpStatus.CONFLICT, "Refund only allowed after capture/settlement");
-        }
-
-        if (requestedAmount != null && requestedAmount.compareTo(payment.getAmount()) != 0) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Partial refunds are not supported in this MVP");
-        }
-
-        BigDecimal fee = calculateFee(payment.getAmount());
-        BigDecimal net = payment.getAmount().subtract(fee);
-        AccountEntity revenueAccount = accountService.getSystemRevenueAccount(payment.getCurrency());
-
-        JournalResponse refundJournal = ledgerService.createJournal(new CreateJournalRequest(
-                JournalType.REFUND,
-                referenceId(payment.getId(), "refund"),
-                List.of(
-                        new CreateLedgerLegRequest(payment.getPayeeAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, net, payment.getCurrency()),
-                        new CreateLedgerLegRequest(revenueAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, fee, payment.getCurrency()),
-                        new CreateLedgerLegRequest(payment.getPayerAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, payment.getAmount(), payment.getCurrency())
-                )
-        ));
-
-        payment.setStatus(PaymentStatus.REFUNDED);
-        PaymentIntentEntity saved = paymentRepository.save(payment);
-        recordMutation(scope, idempotencyKey, fingerprint, saved);
-
-        emitPaymentMutationEvent(
-                "payment.refunded",
-                saved,
-                refundJournal.id(),
-                correlationId,
-                Map.of("status", saved.getStatus().name(), "reason", nullToBlank(request.reason()))
-        );
-        return saved;
     }
 
     @Transactional
     public PaymentIntentEntity cancel(UUID paymentId, String idempotencyKey, String correlationId) {
+        io.micrometer.core.instrument.Timer.Sample sample = paymentMetrics.startOperation();
+        String operationOutcome = "error";
         String scope = mutationScope("cancel", paymentId);
         String fingerprint = "cancel";
-        if (idempotencyService.isReplay(scope, idempotencyKey, fingerprint)) {
-            return getOrFail(paymentId);
-        }
+        try {
+            if (idempotencyService.isReplay(scope, idempotencyKey, fingerprint)) {
+                operationOutcome = "idempotent";
+                return getOrFail(paymentId);
+            }
 
-        PaymentIntentEntity payment = getOrFail(paymentId);
-        if (payment.getStatus() == PaymentStatus.CANCELLED) {
-            recordMutation(scope, idempotencyKey, fingerprint, payment);
-            return payment;
-        }
+            PaymentIntentEntity payment = getOrFail(paymentId);
+            if (payment.getStatus() == PaymentStatus.CANCELLED) {
+                recordMutation(scope, idempotencyKey, fingerprint, payment);
+                operationOutcome = "already_cancelled";
+                return payment;
+            }
 
-        if (payment.getStatus() == PaymentStatus.CREATED || payment.getStatus() == PaymentStatus.RISK_SCORING) {
+            if (payment.getStatus() == PaymentStatus.CREATED || payment.getStatus() == PaymentStatus.RISK_SCORING) {
+                payment.setStatus(PaymentStatus.CANCELLED);
+                PaymentIntentEntity saved = paymentRepository.save(payment);
+                recordMutation(scope, idempotencyKey, fingerprint, saved);
+                auditService.append(
+                        "payment.cancelled",
+                        saved.getId(),
+                        saved.getPayerAccountId(),
+                        null,
+                        correlationId,
+                        Map.of("status", saved.getStatus().name())
+                );
+                paymentMetrics.recordOutcome(saved);
+                operationOutcome = "cancelled";
+                return saved;
+            }
+
+            if (payment.getStatus() != PaymentStatus.RESERVED) {
+                throw new ApiException(HttpStatus.CONFLICT, "Cancel only allowed before capture");
+            }
+
+            AccountEntity holdingAccount = accountService.getSystemHoldingAccount(payment.getCurrency());
+            JournalResponse reversalJournal = ledgerService.createJournal(new CreateJournalRequest(
+                    JournalType.REVERSAL,
+                    referenceId(payment.getId(), "cancel"),
+                    List.of(
+                            new CreateLedgerLegRequest(holdingAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, payment.getAmount(), payment.getCurrency()),
+                            new CreateLedgerLegRequest(payment.getPayerAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, payment.getAmount(), payment.getCurrency())
+                    )
+            ));
+
             payment.setStatus(PaymentStatus.CANCELLED);
             PaymentIntentEntity saved = paymentRepository.save(payment);
             recordMutation(scope, idempotencyKey, fingerprint, saved);
-            auditService.append(
+
+            emitPaymentMutationEvent(
                     "payment.cancelled",
-                    saved.getId(),
-                    saved.getPayerAccountId(),
-                    null,
+                    saved,
+                    reversalJournal.id(),
                     correlationId,
                     Map.of("status", saved.getStatus().name())
             );
+            paymentMetrics.recordOutcome(saved);
+            operationOutcome = "cancelled";
             return saved;
+        } finally {
+            paymentMetrics.recordOperation("cancel", operationOutcome, sample);
         }
-
-        if (payment.getStatus() != PaymentStatus.RESERVED) {
-            throw new ApiException(HttpStatus.CONFLICT, "Cancel only allowed before capture");
-        }
-
-        AccountEntity holdingAccount = accountService.getSystemHoldingAccount(payment.getCurrency());
-        JournalResponse reversalJournal = ledgerService.createJournal(new CreateJournalRequest(
-                JournalType.REVERSAL,
-                referenceId(payment.getId(), "cancel"),
-                List.of(
-                        new CreateLedgerLegRequest(holdingAccount.getId(), com.ledgerforge.payments.ledger.LedgerDirection.DEBIT, payment.getAmount(), payment.getCurrency()),
-                        new CreateLedgerLegRequest(payment.getPayerAccountId(), com.ledgerforge.payments.ledger.LedgerDirection.CREDIT, payment.getAmount(), payment.getCurrency())
-                )
-        ));
-
-        payment.setStatus(PaymentStatus.CANCELLED);
-        PaymentIntentEntity saved = paymentRepository.save(payment);
-        recordMutation(scope, idempotencyKey, fingerprint, saved);
-
-        emitPaymentMutationEvent(
-                "payment.cancelled",
-                saved,
-                reversalJournal.id(),
-                correlationId,
-                Map.of("status", saved.getStatus().name())
-        );
-        return saved;
     }
 
     private JournalResponse reserveFunds(PaymentIntentEntity payment, String referenceId) {
@@ -555,10 +618,17 @@ public class PaymentService {
 
     @Transactional
     public PaymentIntentEntity createWithIdempotency(CreatePaymentRequest request, String idempotencyKey, String correlationId) {
+        io.micrometer.core.instrument.Timer.Sample sample = paymentMetrics.startOperation();
+        String operationOutcome = "error";
         try {
-            return create(request, idempotencyKey, correlationId);
+            PaymentIntentEntity created = create(request, idempotencyKey, correlationId);
+            operationOutcome = "created";
+            return created;
         } catch (ExistingPaymentException existing) {
+            operationOutcome = "idempotent";
             return existing.payment;
+        } finally {
+            paymentMetrics.recordOperation("create", operationOutcome, sample);
         }
     }
 }
