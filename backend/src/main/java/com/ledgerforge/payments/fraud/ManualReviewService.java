@@ -87,7 +87,10 @@ public class ManualReviewService {
     }
 
     @Transactional
-    public ReviewCaseEntity decide(UUID reviewCaseId, ReviewDecisionRequest request, String correlationId) {
+    public ReviewCaseEntity decide(UUID reviewCaseId,
+                                   ReviewDecisionRequest request,
+                                   String correlationId,
+                                   String actorId) {
         ReviewCaseEntity reviewCase = reviewCaseRepository.findById(reviewCaseId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Review case not found: " + reviewCaseId));
         if (reviewCase.getStatus() != ReviewCaseStatus.OPEN) {
@@ -129,7 +132,7 @@ public class ManualReviewService {
         Map<String, Object> details = new HashMap<>();
         details.put("reviewCaseId", savedReviewCase.getId());
         details.put("decision", request.decision().name());
-        details.put("actor", request.actor());
+        details.put("actor", actorId);
         details.put("note", request.note() == null ? "" : request.note());
         if (reserveJournal != null) {
             details.put("journalId", reserveJournal.getId());
@@ -144,7 +147,7 @@ public class ManualReviewService {
         );
 
         if (reserveJournal != null) {
-            emitReservedPaymentMutationEvent(savedPayment, savedReviewCase, request, reserveJournal, correlationId);
+            emitReservedPaymentMutationEvent(savedPayment, savedReviewCase, request, reserveJournal, correlationId, actorId);
         }
 
         return savedReviewCase;
@@ -165,14 +168,15 @@ public class ManualReviewService {
                                                   ReviewCaseEntity reviewCase,
                                                   ReviewDecisionRequest request,
                                                   JournalTransactionEntity reserveJournal,
-                                                  String correlationId) {
+                                                  String correlationId,
+                                                  String actorId) {
         Map<String, Object> eventDetails = new HashMap<>();
         eventDetails.put("status", payment.getStatus().name());
         eventDetails.put("riskScore", payment.getRiskScore());
         eventDetails.put("riskDecision", payment.getRiskDecision().name());
         eventDetails.put("reviewCaseId", reviewCase.getId());
         eventDetails.put("reviewDecision", request.decision().name());
-        eventDetails.put("reviewActor", request.actor());
+        eventDetails.put("reviewActor", actorId);
         eventDetails.put("reviewNote", request.note() == null ? "" : request.note());
 
         auditService.append(

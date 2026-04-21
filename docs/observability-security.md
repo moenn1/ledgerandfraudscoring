@@ -63,6 +63,41 @@ Every financial mutation should emit an immutable event:
 - Sanitize unexpected `500` responses to a generic message and keep stack traces server-side only.
 - Keep the H2 console disabled by default. Enable it only for local debugging with `H2_CONSOLE_ENABLED=true`.
 
+### Operator API Role Matrix
+
+- `Viewer`: authenticated read access to operator dashboards and fraud queue listings
+- `Operator`: `capture`, `refund`, and `cancel` payment mutations
+- `Reviewer`: fraud review decisions (`POST /api/fraud/reviews/{id}/decision`)
+- `Admin`: ledger replay, ledger verification, and repair-oriented journal actions
+
+The current backend protects these routes directly:
+
+- `POST /api/payments/{id}/capture`, `POST /api/payments/{id}/refund`, `POST /api/payments/{id}/cancel` require `Operator`
+- `GET /api/fraud/reviews` requires an authenticated operator with at least `Viewer`
+- `POST /api/fraud/reviews/{id}/decision` requires `Reviewer`
+- `GET /api/ledger/**` and `POST /api/ledger/journals` require authenticated operator access, with `Admin` enforced on replay/verification and journal mutation paths
+
+Reviewer audit fields are derived from the authenticated token subject or preferred username. The decision payload no longer needs to supply a trusted actor identifier.
+
+### Local Development Tokens
+
+For local development and tests, the backend accepts HS256-signed JWTs using the configured LedgerForge operator audience and issuer defaults.
+
+Generate a token with:
+
+```bash
+python3 scripts/generate-operator-token.py \
+  --subject risk.reviewer@ledgerforge.local \
+  --role REVIEWER
+```
+
+Relevant backend configuration:
+
+- `LEDGERFORGE_AUTH_ISSUER_URI` or `LEDGERFORGE_AUTH_JWK_SET_URI` for an external OIDC issuer
+- `LEDGERFORGE_AUTH_ISSUER` and `LEDGERFORGE_AUTH_AUDIENCE` for issuer/audience validation
+- `LEDGERFORGE_AUTH_HMAC_SECRET` for local HS256 token signing
+- `LEDGERFORGE_ALLOWED_ORIGIN_*` for local operator UI CORS origins
+
 ## Compliance-Inspired Practices
 
 - Immutable ledger and audit trails

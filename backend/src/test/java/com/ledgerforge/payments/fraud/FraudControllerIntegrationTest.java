@@ -9,6 +9,7 @@ import com.ledgerforge.payments.audit.AuditEventRepository;
 import com.ledgerforge.payments.outbox.OutboxEventRepository;
 import com.ledgerforge.payments.payment.api.CreatePaymentRequest;
 import com.ledgerforge.payments.payment.api.ConfirmPaymentRequest;
+import com.ledgerforge.payments.security.TestOperatorTokens;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -83,11 +84,11 @@ class FraudControllerIntegrationTest {
                 .orElseThrow();
 
         mockMvc.perform(post("/api/fraud/reviews/{id}/decision", reviewCase.getId())
+                        .header("Authorization", TestOperatorTokens.bearer("risk.reviewer@ledgerforge.local", "REVIEWER"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
                                   "decision": "APPROVE",
-                                  "actor": "reviewer@ledgerforge.local",
                                   "note": "Approved after manual review"
                                 }
                                 """))
@@ -99,7 +100,8 @@ class FraudControllerIntegrationTest {
                 .andExpect(jsonPath("$.status").value("RESERVED"))
                 .andExpect(jsonPath("$.riskDecision").value("APPROVE"));
 
-        String verificationResponse = mockMvc.perform(get("/api/ledger/verification"))
+        String verificationResponse = mockMvc.perform(get("/api/ledger/verification")
+                        .header("Authorization", TestOperatorTokens.bearer("admin.verify@ledgerforge.local", "ADMIN")))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()

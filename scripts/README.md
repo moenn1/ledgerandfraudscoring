@@ -16,6 +16,9 @@ Optional environment variables:
 - `DEFAULT_CURRENCY` (default: `USD`)
 - `IDEMPOTENCY_PREFIX` (default: `ledgerforge-local`)
 - `TIMEOUT_SECONDS` for readiness wait (default: `60`)
+- `LEDGERFORGE_AUTH_ISSUER` (default: `https://auth.ledgerforge.local`)
+- `LEDGERFORGE_AUTH_AUDIENCE` (default: `ledgerforge-operator-api`)
+- `LEDGERFORGE_AUTH_HMAC_SECRET` for locally signed operator tokens
 
 ## Commands
 
@@ -23,6 +26,7 @@ Optional environment variables:
 - `./scripts/seed-demo.sh`: tries to create demo accounts and one payment
 - `./scripts/smoke-test.sh`: health + basic payment API checks
 - `./scripts/demo-run.sh`: runs all of the above in order
+- `python3 ./scripts/generate-operator-token.py --subject operator.ui@ledgerforge.local --role VIEWER`: prints a local operator bearer token
 
 ## Notes
 

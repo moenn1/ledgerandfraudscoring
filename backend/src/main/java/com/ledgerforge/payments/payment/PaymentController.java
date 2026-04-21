@@ -11,6 +11,7 @@ import com.ledgerforge.payments.payment.api.RefundPaymentRequest;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -67,6 +68,7 @@ public class PaymentController {
     }
 
     @PostMapping("/{id}/capture")
+    @PreAuthorize("hasRole('OPERATOR')")
     public PaymentIntentResponse capture(@PathVariable UUID id,
                                          @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
                                          HttpServletRequest servletRequest) {
@@ -80,6 +82,7 @@ public class PaymentController {
     }
 
     @PostMapping("/{id}/refund")
+    @PreAuthorize("hasRole('OPERATOR')")
     public PaymentIntentResponse refund(@PathVariable UUID id,
                                         @Valid @RequestBody(required = false) RefundPaymentRequest request,
                                         @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -96,6 +99,7 @@ public class PaymentController {
     }
 
     @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasRole('OPERATOR')")
     public PaymentIntentResponse cancel(@PathVariable UUID id,
                                         @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
                                         HttpServletRequest servletRequest) {
