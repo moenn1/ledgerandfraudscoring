@@ -22,7 +22,7 @@ The repository is being built out as the LedgerForge platform, with ongoing deli
 
 ## Local Operator Auth
 
-Operator-only backend routes now require a bearer token with one of the documented roles in `docs/observability-security.md`.
+Operator read and mutation routes now require a bearer token with one of the documented roles in `docs/observability-security.md`.
 
 For local development, generate an HMAC-signed token with:
 
@@ -33,3 +33,5 @@ python3 scripts/generate-operator-token.py \
 ```
 
 Override `LEDGERFORGE_AUTH_ISSUER`, `LEDGERFORGE_AUTH_AUDIENCE`, or `LEDGERFORGE_AUTH_HMAC_SECRET` if your local backend config differs from the defaults.
+
+The operator console's live `GET /api/payments`, `GET /api/payments/{id}`, `GET /api/payments/{id}/risk`, `GET /api/payments/{id}/ledger`, and account inspection endpoints now require at least the `Viewer` role.

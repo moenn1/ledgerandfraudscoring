@@ -95,7 +95,8 @@ class FraudControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("APPROVED"));
 
-        mockMvc.perform(get("/api/payments/{id}", paymentId))
+        mockMvc.perform(get("/api/payments/{id}", paymentId)
+                        .header("Authorization", TestOperatorTokens.bearer("viewer.review@ledgerforge.local", "VIEWER")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("RESERVED"))
                 .andExpect(jsonPath("$.riskDecision").value("APPROVE"));

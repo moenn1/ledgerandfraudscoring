@@ -35,7 +35,7 @@ npm run preview
 ## API configuration
 
 Set `VITE_API_BASE_URL` to point to your backend (default: `http://localhost:8080`).
-If your backend requires operator authentication, set `VITE_API_BEARER_TOKEN` to a valid bearer token.
+The current backend requires operator authentication for live operator-console reads and review actions, so set `VITE_API_BEARER_TOKEN` to a valid bearer token.
 
 Example:
 
@@ -51,13 +51,24 @@ Expected read endpoints:
 
 - `GET /api/metrics`
 - `GET /api/payments`
+- `GET /api/payments/{id}`
+- `GET /api/payments/{id}/risk`
 - `GET /api/payments/{id}/ledger`
+- `GET /api/accounts`
+- `GET /api/accounts/{id}`
+- `GET /api/accounts/{id}/balance`
+- `GET /api/accounts/{id}/ledger`
 - `GET /api/fraud/reviews`
 - `GET /api/reconciliation/reports`
 
 Optional write endpoint for live review actions:
 
 - `POST /api/fraud/reviews/{id}/decision`
+
+Required roles on the current backend:
+
+- `Viewer` for payment, account, fraud-queue, and ledger read paths used by the console
+- `Reviewer` for manual fraud review decisions
 
 Behavior by API availability:
 

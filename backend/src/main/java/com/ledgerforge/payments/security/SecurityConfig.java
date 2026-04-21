@@ -61,6 +61,16 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/info", "/actuator/prometheus").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/accounts",
+                                "/api/accounts/*",
+                                "/api/accounts/*/balance",
+                                "/api/accounts/*/ledger",
+                                "/api/payments",
+                                "/api/payments/*",
+                                "/api/payments/*/risk",
+                                "/api/payments/*/ledger"
+                        ).authenticated()
                         .requestMatchers(HttpMethod.POST,
                                 "/api/payments/*/capture",
                                 "/api/payments/*/refund",

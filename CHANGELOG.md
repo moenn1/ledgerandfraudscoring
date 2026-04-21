@@ -20,6 +20,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Payment lifecycle docs now reflect the implemented confirm flow reserving funds, manual-review holds, and cancel guards.
 - Ledger invariants documentation now includes the operator recovery flow for `/api/ledger/replay/accounts/{accountId}` and `/api/ledger/verification`.
 - Manual-review decision audit fields now use the authenticated reviewer identity instead of trusting a caller-supplied actor field.
+- Payment and account inspection endpoints now require authenticated `Viewer` access so operator-console read paths no longer remain publicly enumerable while mutation routes are protected.
 
 ### Fixed
 - Backend payment integration tests now use transactional rollback so idempotency assertions stay isolated across test methods.

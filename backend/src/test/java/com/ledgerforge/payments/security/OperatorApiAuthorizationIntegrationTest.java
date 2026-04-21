@@ -23,6 +23,7 @@ import java.util.Comparator;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -173,6 +174,80 @@ class OperatorApiAuthorizationIntegrationTest {
 
         JsonNode latestDecision = latestDecisionAudit();
         assertThat(latestDecision.get("actor").asText()).isEqualTo("risk.reviewer@ledgerforge.local");
+    }
+
+    @Test
+    void paymentReadEndpointsRequireViewerRole() throws Exception {
+        String paymentId = createReservedPayment("payment-read-auth");
+
+        mockMvc.perform(get("/api/payments"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/payments/{id}", paymentId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/payments/{id}/risk", paymentId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/payments/{id}/ledger", paymentId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/payments")
+                        .header("Authorization", TestOperatorTokens.bearer("viewer.payments@ledgerforge.local", "VIEWER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].id", hasItem(paymentId)));
+
+        mockMvc.perform(get("/api/payments/{id}", paymentId)
+                        .header("Authorization", TestOperatorTokens.bearer("operator.payments@ledgerforge.local", "OPERATOR")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(paymentId));
+
+        mockMvc.perform(get("/api/payments/{id}/risk", paymentId)
+                        .header("Authorization", TestOperatorTokens.bearer("reviewer.risk@ledgerforge.local", "REVIEWER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paymentId").value(paymentId));
+
+        mockMvc.perform(get("/api/payments/{id}/ledger", paymentId)
+                        .header("Authorization", TestOperatorTokens.bearer("admin.ledger@ledgerforge.local", "ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+    }
+
+    @Test
+    void accountReadEndpointsRequireViewerRole() throws Exception {
+        UUID accountId = createAccount("account-read-auth", "USD");
+
+        mockMvc.perform(get("/api/accounts"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/accounts/{id}", accountId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/accounts/{id}/balance", accountId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/accounts/{id}/ledger", accountId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/accounts")
+                        .header("Authorization", TestOperatorTokens.bearer("viewer.accounts@ledgerforge.local", "VIEWER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].id", hasItem(accountId.toString())));
+
+        mockMvc.perform(get("/api/accounts/{id}", accountId)
+                        .header("Authorization", TestOperatorTokens.bearer("operator.accounts@ledgerforge.local", "OPERATOR")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(accountId.toString()));
+
+        mockMvc.perform(get("/api/accounts/{id}/balance", accountId)
+                        .header("Authorization", TestOperatorTokens.bearer("reviewer.accounts@ledgerforge.local", "REVIEWER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountId").value(accountId.toString()));
+
+        mockMvc.perform(get("/api/accounts/{id}/ledger", accountId)
+                        .header("Authorization", TestOperatorTokens.bearer("admin.accounts@ledgerforge.local", "ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
     }
 
     @Test

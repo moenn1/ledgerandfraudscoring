@@ -65,13 +65,15 @@ Every financial mutation should emit an immutable event:
 
 ### Operator API Role Matrix
 
-- `Viewer`: authenticated read access to operator dashboards and fraud queue listings
+- `Viewer`: authenticated read access to operator dashboards, payment and account inspection APIs, ledger journal reads, and fraud queue listings
 - `Operator`: `capture`, `refund`, and `cancel` payment mutations
 - `Reviewer`: fraud review decisions (`POST /api/fraud/reviews/{id}/decision`)
 - `Admin`: ledger replay, ledger verification, and repair-oriented journal actions
 
 The current backend protects these routes directly:
 
+- `GET /api/accounts`, `GET /api/accounts/{id}`, `GET /api/accounts/{id}/balance`, and `GET /api/accounts/{id}/ledger` require an authenticated operator with at least `Viewer`
+- `GET /api/payments`, `GET /api/payments/{id}`, `GET /api/payments/{id}/risk`, and `GET /api/payments/{id}/ledger` require an authenticated operator with at least `Viewer`
 - `POST /api/payments/{id}/capture`, `POST /api/payments/{id}/refund`, `POST /api/payments/{id}/cancel` require `Operator`
 - `GET /api/fraud/reviews` requires an authenticated operator with at least `Viewer`
 - `POST /api/fraud/reviews/{id}/decision` requires `Reviewer`

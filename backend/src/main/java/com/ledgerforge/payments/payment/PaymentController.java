@@ -43,11 +43,13 @@ public class PaymentController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('VIEWER')")
     public List<PaymentIntentResponse> list() {
         return paymentService.list().stream().map(PaymentIntentResponse::from).toList();
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('VIEWER')")
     public PaymentIntentResponse get(@PathVariable UUID id) {
         return PaymentIntentResponse.from(paymentService.get(id));
     }
@@ -113,11 +115,13 @@ public class PaymentController {
     }
 
     @GetMapping("/{id}/risk")
+    @PreAuthorize("hasRole('VIEWER')")
     public PaymentRiskResponse risk(@PathVariable UUID id) {
         return PaymentRiskResponse.from(paymentService.get(id), paymentService.paymentRisk(id));
     }
 
     @GetMapping("/{id}/ledger")
+    @PreAuthorize("hasRole('VIEWER')")
     public List<LedgerEntryResponse> ledger(@PathVariable UUID id) {
         return paymentService.paymentLedger(id).stream().map(LedgerEntryResponse::from).toList();
     }
