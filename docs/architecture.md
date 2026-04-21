@@ -89,4 +89,4 @@ sequenceDiagram
 - Start as one service with module boundaries and separate packages.
 - Persist all financial state in PostgreSQL with Flyway/Liquibase migrations.
 - Use Redis for idempotency key cache and velocity counters (optional in MVP).
-- Introduce async bus and outbox in phase 2 for higher throughput and decoupling.
+- Persist outbox rows for reserve/capture/refund/cancel payment mutations now, and add async relay/bus delivery in phase 2 for higher throughput and decoupling.

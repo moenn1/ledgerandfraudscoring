@@ -14,6 +14,7 @@ import com.ledgerforge.payments.payment.PaymentIntentEntity;
 import com.ledgerforge.payments.payment.PaymentIntentRepository;
 import com.ledgerforge.payments.payment.PaymentStatus;
 import com.ledgerforge.payments.payment.RiskDecision;
+import com.ledgerforge.payments.outbox.OutboxService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,17 +34,20 @@ public class ManualReviewService {
     private final AccountService accountService;
     private final LedgerService ledgerService;
     private final AuditService auditService;
+    private final OutboxService outboxService;
 
     public ManualReviewService(ReviewCaseRepository reviewCaseRepository,
                                PaymentIntentRepository paymentIntentRepository,
                                AccountService accountService,
                                LedgerService ledgerService,
-                               AuditService auditService) {
+                               AuditService auditService,
+                               OutboxService outboxService) {
         this.reviewCaseRepository = reviewCaseRepository;
         this.paymentIntentRepository = paymentIntentRepository;
         this.accountService = accountService;
         this.ledgerService = ledgerService;
         this.auditService = auditService;
+        this.outboxService = outboxService;
     }
 
     @Transactional(readOnly = true)
@@ -83,7 +87,10 @@ public class ManualReviewService {
     }
 
     @Transactional
-    public ReviewCaseEntity decide(UUID reviewCaseId, ReviewDecisionRequest request, String correlationId) {
+    public ReviewCaseEntity decide(UUID reviewCaseId,
+                                   ReviewDecisionRequest request,
+                                   String correlationId,
+                                   String actorId) {
         ReviewCaseEntity reviewCase = reviewCaseRepository.findById(reviewCaseId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Review case not found: " + reviewCaseId));
         if (reviewCase.getStatus() != ReviewCaseStatus.OPEN) {
@@ -119,27 +126,31 @@ public class ManualReviewService {
             payment.setFailureReason("Rejected during manual review");
         }
 
-        reviewCaseRepository.save(reviewCase);
-        paymentIntentRepository.save(payment);
+        ReviewCaseEntity savedReviewCase = reviewCaseRepository.save(reviewCase);
+        PaymentIntentEntity savedPayment = paymentIntentRepository.save(payment);
 
         Map<String, Object> details = new HashMap<>();
-        details.put("reviewCaseId", reviewCase.getId());
+        details.put("reviewCaseId", savedReviewCase.getId());
         details.put("decision", request.decision().name());
-        details.put("actor", request.actor());
+        details.put("actor", actorId);
         details.put("note", request.note() == null ? "" : request.note());
         if (reserveJournal != null) {
             details.put("journalId", reserveJournal.getId());
         }
         auditService.append(
                 "fraud.review_case.decided",
-                payment.getId(),
-                payment.getPayerAccountId(),
+                savedPayment.getId(),
+                savedPayment.getPayerAccountId(),
                 reserveJournal == null ? null : reserveJournal.getId(),
                 correlationId,
                 details
         );
 
-        return reviewCase;
+        if (reserveJournal != null) {
+            emitReservedPaymentMutationEvent(savedPayment, savedReviewCase, request, reserveJournal, correlationId, actorId);
+        }
+
+        return savedReviewCase;
     }
 
     private String reasonSummary(List<FraudReason> reasons) {
@@ -151,5 +162,37 @@ public class ManualReviewService {
                 .map(reason -> reason.code() + ": " + reason.message())
                 .reduce((a, b) -> a + " | " + b)
                 .orElse("Risk policy requires manual review");
+    }
+
+    private void emitReservedPaymentMutationEvent(PaymentIntentEntity payment,
+                                                  ReviewCaseEntity reviewCase,
+                                                  ReviewDecisionRequest request,
+                                                  JournalTransactionEntity reserveJournal,
+                                                  String correlationId,
+                                                  String actorId) {
+        Map<String, Object> eventDetails = new HashMap<>();
+        eventDetails.put("status", payment.getStatus().name());
+        eventDetails.put("riskScore", payment.getRiskScore());
+        eventDetails.put("riskDecision", payment.getRiskDecision().name());
+        eventDetails.put("reviewCaseId", reviewCase.getId());
+        eventDetails.put("reviewDecision", request.decision().name());
+        eventDetails.put("reviewActor", actorId);
+        eventDetails.put("reviewNote", request.note() == null ? "" : request.note());
+
+        auditService.append(
+                "payment.reserved",
+                payment.getId(),
+                payment.getPayerAccountId(),
+                reserveJournal.getId(),
+                correlationId,
+                eventDetails
+        );
+        outboxService.enqueue(
+                "payment.reserved",
+                payment.getId(),
+                reserveJournal.getId(),
+                correlationId,
+                eventDetails
+        );
     }
 }

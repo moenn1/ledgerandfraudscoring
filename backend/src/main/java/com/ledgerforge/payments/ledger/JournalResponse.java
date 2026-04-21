@@ -1,5 +1,6 @@
 package com.ledgerforge.payments.ledger;
 
+import java.util.Comparator;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -19,7 +20,10 @@ public record JournalResponse(
                 journal.getStatus(),
                 journal.getReferenceId(),
                 journal.getCreatedAt(),
-                entries.stream().map(LedgerEntryResponse::from).toList()
+                entries.stream()
+                        .sorted(Comparator.comparingInt(LedgerEntryEntity::getLineNumber))
+                        .map(LedgerEntryResponse::from)
+                        .toList()
         );
     }
 }

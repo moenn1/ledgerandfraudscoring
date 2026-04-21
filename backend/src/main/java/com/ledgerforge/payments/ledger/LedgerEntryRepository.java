@@ -14,13 +14,13 @@ public interface LedgerEntryRepository extends JpaRepository<LedgerEntryEntity, 
 
     List<LedgerEntryEntity> findByAccountIdOrderByCreatedAtAscIdAsc(UUID accountId);
 
-    List<LedgerEntryEntity> findByJournal_IdOrderByCreatedAtAsc(UUID journalId);
+    List<LedgerEntryEntity> findByJournal_IdOrderByLineNumberAsc(UUID journalId);
 
     @Query("""
             select le
             from LedgerEntryEntity le
             where le.journal.referenceId like concat(:referencePrefix, '%')
-            order by le.createdAt asc
+            order by le.createdAt asc, le.lineNumber asc, le.id asc
             """)
     List<LedgerEntryEntity> findByReferencePrefixOrderByCreatedAtAsc(@Param("referencePrefix") String referencePrefix);
 
@@ -46,4 +46,13 @@ public interface LedgerEntryRepository extends JpaRepository<LedgerEntryEntity, 
             having count(distinct le.currency) > 1
             """)
     List<Object[]> findMixedCurrencyJournalAggregates();
+
+    @Query("""
+            select le
+            from LedgerEntryEntity le, AccountEntity a
+            where le.accountId = a.id
+              and le.currency <> a.currency
+            order by le.accountId asc, le.createdAt asc, le.lineNumber asc, le.id asc
+            """)
+    List<LedgerEntryEntity> findAccountCurrencyMismatchedEntries();
 }

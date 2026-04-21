@@ -9,38 +9,51 @@ source "${SCRIPT_DIR}/lib.sh"
 require_cmd curl
 require_cmd python3
 
-payer_account_id="${PAYER_ACCOUNT_ID:-payer-001}"
-payee_account_id="${PAYEE_ACCOUNT_ID:-payee-001}"
+payer_owner_id="${PAYER_OWNER_ID:-alice-$(rand_id)}"
+payee_owner_id="${PAYEE_OWNER_ID:-bob-$(rand_id)}"
 payment_amount="${PAYMENT_AMOUNT:-12500}"
 payment_idempotency_key="${PAYMENT_IDEMPOTENCY_KEY:-${IDEMPOTENCY_PREFIX}-seed-$(rand_id)}"
 
 create_account() {
-  local account_id="$1"
   local owner_id="$2"
-  local starting_balance_cents="$3"
+  local label="$1"
 
   local payload
   payload="$(python3 - <<PY
 import json
 print(json.dumps({
-  "id": "${account_id}",
   "ownerId": "${owner_id}",
-  "currency": "${DEFAULT_CURRENCY}",
-  "startingBalanceCents": ${starting_balance_cents}
+  "currency": "${DEFAULT_CURRENCY}"
 }))
 PY
 )"
 
-  if http_json "POST" "${API_BASE_URL}/api/accounts" "${payload}" >/dev/null 2>&1; then
-    log "account ensured: ${account_id}"
-  else
-    log "could not create account ${account_id} (endpoint may differ); continuing"
+  local response
+  if ! response="$(http_json "POST" "${API_BASE_URL}/api/accounts" "${payload}" 2>/dev/null)"; then
+    log "could not create ${label} account for owner ${owner_id} (endpoint may differ); continuing" >&2
+    return 1
   fi
+
+  local account_id
+  account_id="$(printf "%s" "${response}" | json_field "id")"
+  if [[ -z "${account_id}" ]]; then
+    log "${label} account response did not include an id; continuing" >&2
+    printf "%s\n" "${response}" >&2
+    return 1
+  fi
+
+  log "${label} account created: ${account_id}" >&2
+  printf "%s\n" "${account_id}"
 }
 
 log "seeding demo data"
-create_account "${payer_account_id}" "alice" 500000
-create_account "${payee_account_id}" "bob" 100000
+payer_account_id="$(create_account "payer" "${payer_owner_id}")" || payer_account_id=""
+payee_account_id="$(create_account "payee" "${payee_owner_id}")" || payee_account_id=""
+
+if [[ -z "${payer_account_id}" || -z "${payee_account_id}" ]]; then
+  log "demo seed could not create both accounts; continuing"
+  exit 0
+fi
 
 payment_payload="$(python3 - <<PY
 import json
@@ -64,12 +77,7 @@ if [[ ${payment_status} -ne 0 ]]; then
   exit 0
 fi
 
-payment_id="$(printf "%s" "${payment_response}" | python3 - <<'PY'
-import json,sys
-obj=json.loads(sys.stdin.read() or "{}")
-print(obj.get("id",""))
-PY
-)"
+payment_id="$(printf "%s" "${payment_response}" | json_field "id")"
 
 if [[ -z "${payment_id}" ]]; then
   log "payment created but ID was not found; raw response follows"
@@ -77,7 +85,8 @@ if [[ -z "${payment_id}" ]]; then
   exit 0
 fi
 
-log "demo payment created: ${payment_id}"
+payment_status_value="$(printf "%s" "${payment_response}" | json_field "status")"
+log "demo payment created: ${payment_id} (status=${payment_status_value})"
 
 for action in confirm capture; do
   set +e

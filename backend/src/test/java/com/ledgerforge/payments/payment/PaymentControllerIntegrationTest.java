@@ -6,6 +6,7 @@ import com.ledgerforge.payments.account.AccountStatus;
 import com.ledgerforge.payments.ledger.LedgerEntryRepository;
 import com.ledgerforge.payments.payment.api.CreatePaymentRequest;
 import com.ledgerforge.payments.payment.api.RefundPaymentRequest;
+import com.ledgerforge.payments.security.TestOperatorTokens;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -23,6 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@Transactional
 class PaymentControllerIntegrationTest {
 
     @Autowired
@@ -102,11 +105,13 @@ class PaymentControllerIntegrationTest {
                 .andExpect(jsonPath("$.status").value("RESERVED"));
 
         mockMvc.perform(post("/api/payments/{id}/capture", paymentId)
+                        .header("Authorization", TestOperatorTokens.bearer("operator.capture@ledgerforge.local", "OPERATOR"))
                         .header("Idempotency-Key", "flow-capture-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CAPTURED"));
 
         mockMvc.perform(post("/api/payments/{id}/refund", paymentId)
+                        .header("Authorization", TestOperatorTokens.bearer("operator.refund@ledgerforge.local", "OPERATOR"))
                         .header("Idempotency-Key", "flow-refund-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new RefundPaymentRequest(null, null, "test"))))
@@ -114,6 +119,7 @@ class PaymentControllerIntegrationTest {
                 .andExpect(jsonPath("$.status").value("REFUNDED"));
 
         mockMvc.perform(post("/api/payments/{id}/capture", paymentId)
+                        .header("Authorization", TestOperatorTokens.bearer("operator.capture@ledgerforge.local", "OPERATOR"))
                         .header("Idempotency-Key", "flow-capture-2"))
                 .andExpect(status().isConflict());
 
