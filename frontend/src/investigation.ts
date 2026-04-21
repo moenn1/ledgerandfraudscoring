@@ -1,4 +1,4 @@
-import {
+import type {
   AuditEntry,
   LedgerEntry,
   Payment,
@@ -7,7 +7,7 @@ import {
   RetryAttempt,
   RetryOutcome,
   ReviewCase
-} from "./types";
+} from "./types.ts";
 
 export function deriveAuditEntries(
   payments: Payment[],

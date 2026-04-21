@@ -9,6 +9,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - A dedicated documentation CI workflow and validation script that keep workflow coverage, docs indexes, and the changelog entrypoint aligned.
 - A repository governance guide that documents workflow ownership, branch naming policy, and release expectations.
 - Initial repository bootstrap with baseline README, architecture docs, and local developer tooling.
+- Repo-native frontend lint and test commands that keep operator-console API access centralized, prevent mock-data bypasses outside `src/api.ts`, and cover analytics plus investigation helpers with deterministic Node-based tests.
 - Operator console data-source guardrails so live payment and ledger APIs remain the source of truth even when metrics or reconciliation endpoints are missing.
 - Live manual-review decision wiring for approve/reject actions against `/api/fraud/reviews/{id}/decision`, with client-side session audit entries carrying correlation and idempotency metadata.
 - Derived operator investigation views for payment audit trails, retry corridors, and reconciliation repair playbooks built from live payment, ledger, review, and anomaly data.
@@ -20,6 +21,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 ### Changed
 - Repository indexes and script docs now describe the CI/CD workflow suite and governance checker entrypoint.
 - GitHub Actions quality gates now cancel superseded branch runs, preserve backend test reports on failure, and publish release bundles with versioned filenames plus SHA-256 manifests.
+- Frontend CI and release packaging now run the same operator-console quality chain, including lint, tests, explicit typechecking, and the production bundle on Node.js 22 before artifacts are produced.
 - Frontend delivery automation now uses a committed portable lockfile with `npm ci`, npm cache reuse, and repo-level npm registry settings that avoid host-specific tarball URLs in version control.
 - Demo smoke automation now creates real accounts, executes payment create/confirm/capture transitions, and fails the gate when ledger verification reports issues.
 - Release automation now reruns the backend smoke gate before assembling or publishing artifacts.

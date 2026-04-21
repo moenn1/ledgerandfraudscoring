@@ -19,9 +19,9 @@ LedgerForge Payments treats CI/CD and release automation as part of production s
 - `.github/workflows/governance.yml` enforces changelog and nearest-doc updates on pushes and pull requests.
 - `.github/workflows/docs-ci.yml` verifies that repository indexes and workflow documentation stay in sync with the actual workflow inventory.
 - `.github/workflows/backend-ci.yml` runs backend tests and packages the Spring Boot artifact with Java 17.
-- `.github/workflows/frontend-ci.yml` runs `npm ci` against the committed lockfile and builds the operator console with Node.js 20.
+- `.github/workflows/frontend-ci.yml` runs `npm ci`, the operator-console lint and test scripts, `tsc -b`, and the production frontend build with Node.js 22.
 - `.github/workflows/smoke-demo.yml` packages the backend, starts it with the in-memory runtime profile, and verifies account creation, payment lifecycle transitions, and ledger checks through the local demo scripts.
-- `.github/workflows/release.yml` builds backend and frontend release artifacts on tags that match `v*`, reuses the same backend smoke gate before artifact assembly, uploads workflow artifacts with SHA-256 manifests, and publishes a GitHub release for tagged versions.
+- `.github/workflows/release.yml` builds backend and frontend release artifacts on tags that match `v*`, reruns the same backend smoke gate, applies the same frontend quality chain used in branch CI before packaging, uploads workflow artifacts with SHA-256 manifests, and publishes a GitHub release for tagged versions.
 - Branch workflows use per-workflow concurrency groups so superseded feature or fix branch runs are cancelled rather than competing for runner time.
 - `frontend/.npmrc` pins the portable public registry configuration and omits registry-host-specific tarball URLs from the committed lockfile so contributors can override the install registry locally without breaking GitHub-hosted runners.
 

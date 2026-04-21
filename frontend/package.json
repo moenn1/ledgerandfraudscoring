@@ -5,7 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "lint": "node --no-warnings --experimental-strip-types ./scripts/lint.ts",
+    "test": "node --no-warnings --experimental-strip-types --test src/*.test.ts",
+    "test:watch": "node --no-warnings --experimental-strip-types --test --watch src/*.test.ts",
+    "typecheck": "tsc -b --pretty false",
+    "quality": "npm run lint && npm run test && npm run typecheck && npm run build",
+    "build": "vite build",
     "preview": "vite preview --port 4173"
   },
   "dependencies": {

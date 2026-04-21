@@ -1,4 +1,4 @@
-import {
+import type {
   AppData,
   Decision,
   LedgerEntry,
@@ -7,8 +7,8 @@ import {
   PaymentStatus,
   ReconciliationItem,
   ReviewCase
-} from "./types";
-import { deriveAuditEntries, deriveRepairRecommendations, deriveRetryAttempts } from "./investigation";
+} from "./types.ts";
+import { deriveAuditEntries, deriveRepairRecommendations, deriveRetryAttempts } from "./investigation.ts";
 
 function iso(minutesAgo: number): string {
   return new Date(Date.now() - minutesAgo * 60_000).toISOString();

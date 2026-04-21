@@ -1,4 +1,4 @@
-import {
+import type {
   AppData,
   AppLoadResult,
   DashboardMetrics,
@@ -8,9 +8,9 @@ import {
   PaymentStatus,
   ReconciliationItem,
   ReviewCase
-} from "./types";
-import { deriveAuditEntries, deriveRepairRecommendations, deriveRetryAttempts } from "./investigation";
-import { mockData } from "./mockData";
+} from "./types.ts";
+import { deriveAuditEntries, deriveRepairRecommendations, deriveRetryAttempts } from "./investigation.ts";
+import { mockData } from "./mockData.ts";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
 const API_BEARER_TOKEN = import.meta.env.VITE_API_BEARER_TOKEN;

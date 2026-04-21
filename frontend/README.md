@@ -30,9 +30,25 @@ If your environment needs an internal npm mirror, override `npm_config_registry`
 ```bash
 cd frontend
 npm ci
-npm run build
+npm run quality
 npm run preview
 ```
+
+## Validate changes
+
+```bash
+cd frontend
+npm ci
+npm run lint
+npm run test
+npm run typecheck
+npm run build
+```
+
+`npm run quality` runs the same validation chain used by GitHub Actions and release packaging.
+The lint step is intentionally repo-native: it blocks direct UI fetches, scattered raw `/api/` route strings, mock-data imports outside `src/api.ts`, and stray debug logging so the ledger-backed API path stays centralized.
+
+The quality scripts use Node.js 22+ because the test and lint commands rely on the built-in TypeScript strip-types runtime.
 
 ## API configuration
 

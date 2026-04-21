@@ -8,6 +8,7 @@
       "DOM.Iterable"
     ],
     "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
     "allowJs": false,
     "strict": true,
     "noEmit": true,

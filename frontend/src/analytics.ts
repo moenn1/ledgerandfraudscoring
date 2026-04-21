@@ -1,4 +1,4 @@
-import { LedgerEntry, Payment, ReconciliationItem, RetryAttempt, ReviewCase } from "./types";
+import type { LedgerEntry, Payment, ReconciliationItem, RetryAttempt, ReviewCase } from "./types.ts";
 
 const LEDGER_REQUIRED_STATUSES = new Set(["RESERVED", "CAPTURED", "SETTLED", "REFUNDED", "REVERSED", "CHARGEBACK"]);
 

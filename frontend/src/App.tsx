@@ -1,7 +1,7 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
-import { deriveAnalytics, type AnalyticsData } from "./analytics";
-import { loadAppData, submitReviewDecision } from "./api";
-import {
+import { deriveAnalytics, type AnalyticsData } from "./analytics.ts";
+import { loadAppData, submitReviewDecision } from "./api.ts";
+import type {
   AppData,
   AppLoadResult,
   AppLoadMeta,
@@ -12,8 +12,8 @@ import {
   RepairRecommendation,
   RetryAttempt,
   ReviewCase
-} from "./types";
-import { asDate, asMoney, asPct, cx } from "./utils";
+} from "./types.ts";
+import { asDate, asMoney, asPct, cx } from "./utils.ts";
 
 type ViewKey = "dashboard" | "analytics" | "payments" | "ledger" | "fraud";
 type ReviewAction = "APPROVE" | "REJECT" | "ESCALATE";
