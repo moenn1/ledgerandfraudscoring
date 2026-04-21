@@ -3,7 +3,11 @@ package com.ledgerforge.payments.ledger;
 import com.ledgerforge.payments.account.AccountEntity;
 import com.ledgerforge.payments.account.AccountRepository;
 import com.ledgerforge.payments.account.AccountStatus;
+import com.ledgerforge.payments.audit.AuditEventEntity;
+import com.ledgerforge.payments.audit.AuditEventRepository;
 import com.ledgerforge.payments.common.api.ApiException;
+import com.ledgerforge.payments.outbox.OutboxEventEntity;
+import com.ledgerforge.payments.outbox.OutboxEventRepository;
 import com.ledgerforge.payments.payment.PaymentIntentEntity;
 import com.ledgerforge.payments.payment.PaymentIntentRepository;
 import com.ledgerforge.payments.payment.PaymentStatus;
@@ -17,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,17 +36,23 @@ public class LedgerService {
     private final LedgerEntryRepository ledgerEntryRepository;
     private final AccountRepository accountRepository;
     private final PaymentIntentRepository paymentIntentRepository;
+    private final AuditEventRepository auditEventRepository;
+    private final OutboxEventRepository outboxEventRepository;
 
     public LedgerService(
             JournalTransactionRepository journalTransactionRepository,
             LedgerEntryRepository ledgerEntryRepository,
             AccountRepository accountRepository,
-            PaymentIntentRepository paymentIntentRepository
+            PaymentIntentRepository paymentIntentRepository,
+            AuditEventRepository auditEventRepository,
+            OutboxEventRepository outboxEventRepository
     ) {
         this.journalTransactionRepository = journalTransactionRepository;
         this.ledgerEntryRepository = ledgerEntryRepository;
         this.accountRepository = accountRepository;
         this.paymentIntentRepository = paymentIntentRepository;
+        this.auditEventRepository = auditEventRepository;
+        this.outboxEventRepository = outboxEventRepository;
     }
 
     @Transactional(readOnly = true)
@@ -144,8 +155,13 @@ public class LedgerService {
                 })
                 .toList();
 
+        List<LedgerVerificationResponse.MutationEventReconciliationFinding> mutationEventReconciliationFindings =
+                findMutationEventReconciliationFindings();
         List<LedgerVerificationResponse.PaymentLifecycleMismatchFinding> paymentLifecycleMismatches = findPaymentLifecycleMismatches();
-        int issueCount = unbalancedJournals.size() + mixedCurrencyJournals.size() + paymentLifecycleMismatches.size();
+        int issueCount = unbalancedJournals.size()
+                + mixedCurrencyJournals.size()
+                + mutationEventReconciliationFindings.size()
+                + paymentLifecycleMismatches.size();
 
         return new LedgerVerificationResponse(
                 java.time.Instant.now(),
@@ -155,6 +171,7 @@ public class LedgerService {
                 issueCount,
                 unbalancedJournals,
                 mixedCurrencyJournals,
+                mutationEventReconciliationFindings,
                 paymentLifecycleMismatches
         );
     }
@@ -239,6 +256,84 @@ public class LedgerService {
                 .toList();
     }
 
+    private List<LedgerVerificationResponse.MutationEventReconciliationFinding> findMutationEventReconciliationFindings() {
+        Map<PaymentMutationKey, List<JournalTransactionEntity>> journalsByKey = new LinkedHashMap<>();
+        for (JournalTransactionEntity journal : journalTransactionRepository.findAllByReferenceIdStartingWithOrderByCreatedAtAsc("payment:")) {
+            UUID paymentId = parsePaymentId(journal.getReferenceId());
+            String action = paymentAction(journal.getReferenceId());
+            if (paymentId == null || !isTrackedPaymentMutation(journal.getType(), action)) {
+                continue;
+            }
+
+            journalsByKey.computeIfAbsent(
+                    new PaymentMutationKey(paymentId, journal.getType(), action),
+                    ignored -> new ArrayList<>()
+            ).add(journal);
+        }
+
+        if (journalsByKey.isEmpty()) {
+            return List.of();
+        }
+
+        Set<UUID> paymentIds = journalsByKey.keySet().stream()
+                .map(PaymentMutationKey::paymentId)
+                .collect(Collectors.toSet());
+
+        Map<UUID, List<ObservedMutationEvent>> auditEventsByPayment = auditEventRepository
+                .findByPaymentIdInOrderByCreatedAtAsc(paymentIds)
+                .stream()
+                .map(this::toObservedMutationEvent)
+                .collect(Collectors.groupingBy(
+                        ObservedMutationEvent::paymentId,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+
+        Map<UUID, List<ObservedMutationEvent>> outboxEventsByPayment = outboxEventRepository
+                .findByPaymentIdInOrderByCreatedAtAsc(paymentIds)
+                .stream()
+                .map(this::toObservedMutationEvent)
+                .collect(Collectors.groupingBy(
+                        ObservedMutationEvent::paymentId,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+
+        return journalsByKey.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(
+                        Comparator.comparing(PaymentMutationKey::paymentId)
+                                .thenComparing(PaymentMutationKey::journalType)
+                                .thenComparing(PaymentMutationKey::action)
+                ))
+                .flatMap(entry -> {
+                    PaymentMutationKey key = entry.getKey();
+                    String expectedEventType = expectedEventType(key.journalType(), key.action());
+                    if (expectedEventType == null) {
+                        return java.util.stream.Stream.empty();
+                    }
+
+                    List<LedgerVerificationResponse.MutationEventReconciliationFinding> findings = new ArrayList<>();
+                    addMutationEventFinding(
+                            findings,
+                            key,
+                            "AUDIT",
+                            expectedEventType,
+                            entry.getValue(),
+                            auditEventsByPayment.getOrDefault(key.paymentId(), List.of())
+                    );
+                    addMutationEventFinding(
+                            findings,
+                            key,
+                            "OUTBOX",
+                            expectedEventType,
+                            entry.getValue(),
+                            outboxEventsByPayment.getOrDefault(key.paymentId(), List.of())
+                    );
+                    return findings.stream();
+                })
+                .toList();
+    }
+
     private LedgerVerificationResponse.PaymentLifecycleMismatchFinding toLifecycleMismatch(
             PaymentIntentEntity payment,
             Set<JournalType> actualJournalTypes
@@ -299,6 +394,120 @@ public class LedgerService {
         } catch (IllegalArgumentException ex) {
             return null;
         }
+    }
+
+    private String paymentAction(String referenceId) {
+        if (referenceId == null || !referenceId.startsWith("payment:")) {
+            return "";
+        }
+        String[] parts = referenceId.split(":");
+        return parts.length >= 3 ? parts[2] : "";
+    }
+
+    private boolean isTrackedPaymentMutation(JournalType journalType, String action) {
+        return switch (journalType) {
+            case RESERVE -> "reserve".equals(action);
+            case CAPTURE -> "capture".equals(action);
+            case REFUND -> "refund".equals(action);
+            case REVERSAL -> "cancel".equals(action);
+            default -> false;
+        };
+    }
+
+    private String expectedEventType(JournalType journalType, String action) {
+        return switch (journalType) {
+            case RESERVE -> "payment.reserved";
+            case CAPTURE -> "payment.captured";
+            case REFUND -> "payment.refunded";
+            case REVERSAL -> "cancel".equals(action) ? "payment.cancelled" : null;
+            default -> null;
+        };
+    }
+
+    private ObservedMutationEvent toObservedMutationEvent(AuditEventEntity event) {
+        return new ObservedMutationEvent(event.getId(), event.getPaymentId(), event.getJournalId(), event.getEventType());
+    }
+
+    private ObservedMutationEvent toObservedMutationEvent(OutboxEventEntity event) {
+        return new ObservedMutationEvent(event.getId(), event.getPaymentId(), event.getJournalId(), event.getEventType());
+    }
+
+    private void addMutationEventFinding(
+            List<LedgerVerificationResponse.MutationEventReconciliationFinding> findings,
+            PaymentMutationKey key,
+            String eventSink,
+            String expectedEventType,
+            List<JournalTransactionEntity> journals,
+            List<ObservedMutationEvent> observedEvents
+    ) {
+        List<ObservedMutationEvent> matchingEvents = observedEvents.stream()
+                .filter(event -> expectedEventType.equals(event.eventType()))
+                .toList();
+
+        Map<UUID, Long> expectedJournalCounts = journals.stream()
+                .map(JournalTransactionEntity::getId)
+                .collect(Collectors.groupingBy(Function.identity(), LinkedHashMap::new, Collectors.counting()));
+
+        Map<UUID, Long> observedEventJournalCounts = matchingEvents.stream()
+                .filter(event -> event.journalId() != null)
+                .collect(Collectors.groupingBy(ObservedMutationEvent::journalId, LinkedHashMap::new, Collectors.counting()));
+
+        int missingEventCount = 0;
+        int duplicateEventCount = 0;
+
+        for (Map.Entry<UUID, Long> expectedJournalCount : expectedJournalCounts.entrySet()) {
+            long observedCount = observedEventJournalCounts.getOrDefault(expectedJournalCount.getKey(), 0L);
+            missingEventCount += Math.max(0L, expectedJournalCount.getValue() - observedCount);
+            duplicateEventCount += Math.max(0L, observedCount - expectedJournalCount.getValue());
+        }
+
+        for (Map.Entry<UUID, Long> observedJournalCount : observedEventJournalCounts.entrySet()) {
+            if (!expectedJournalCounts.containsKey(observedJournalCount.getKey())) {
+                duplicateEventCount += observedJournalCount.getValue().intValue();
+            }
+        }
+
+        duplicateEventCount += matchingEvents.stream()
+                .filter(event -> event.journalId() == null)
+                .count();
+
+        if (missingEventCount == 0 && duplicateEventCount == 0) {
+            return;
+        }
+
+        findings.add(new LedgerVerificationResponse.MutationEventReconciliationFinding(
+                key.paymentId(),
+                key.journalType(),
+                key.action(),
+                eventSink,
+                expectedEventType,
+                journals.size(),
+                matchingEvents.size(),
+                missingEventCount,
+                duplicateEventCount,
+                journals.stream().map(JournalTransactionEntity::getId).toList(),
+                matchingEvents.stream().map(ObservedMutationEvent::id).toList(),
+                mutationEventReason(key, eventSink, expectedEventType, missingEventCount, duplicateEventCount)
+        ));
+    }
+
+    private String mutationEventReason(
+            PaymentMutationKey key,
+            String eventSink,
+            String eventType,
+            int missingEventCount,
+            int duplicateEventCount
+    ) {
+        List<String> issues = new ArrayList<>();
+        if (missingEventCount > 0) {
+            issues.add("missing " + missingEventCount);
+        }
+        if (duplicateEventCount > 0) {
+            issues.add("duplicate " + duplicateEventCount);
+        }
+        return "Payment " + key.paymentId() + " " + key.action() + " mutation has "
+                + String.join(" and ", issues)
+                + " " + eventSink.toLowerCase() + " events for " + eventType;
     }
 
     private int symmetricDifferenceSize(Set<JournalType> left, Set<JournalType> right) {
@@ -437,6 +646,12 @@ public class LedgerService {
         }
         String trimmed = referenceId.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private record PaymentMutationKey(UUID paymentId, JournalType journalType, String action) {
+    }
+
+    private record ObservedMutationEvent(UUID id, UUID paymentId, UUID journalId, String eventType) {
     }
 
     private record LegKey(UUID accountId, LedgerDirection direction, BigDecimal amount, String currency) {

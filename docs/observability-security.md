@@ -18,6 +18,7 @@
 - Generate `correlation_id` at ingress if missing.
 - Propagate through API -> fraud -> ledger -> outbox.
 - Include correlation id in audit events and operator timeline payloads.
+- Persist payment mutation outbox rows for reserve/capture/refund/cancel so reconciliation can compare downstream event durability against posted ledger mutations.
 
 ### Audit Event Standard
 

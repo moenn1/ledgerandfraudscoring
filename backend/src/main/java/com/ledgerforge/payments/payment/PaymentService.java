@@ -15,6 +15,7 @@ import com.ledgerforge.payments.ledger.JournalResponse;
 import com.ledgerforge.payments.ledger.JournalType;
 import com.ledgerforge.payments.ledger.LedgerEntryEntity;
 import com.ledgerforge.payments.ledger.LedgerService;
+import com.ledgerforge.payments.outbox.OutboxService;
 import com.ledgerforge.payments.payment.api.ConfirmPaymentRequest;
 import com.ledgerforge.payments.payment.api.CreatePaymentRequest;
 import com.ledgerforge.payments.payment.api.RefundPaymentRequest;
@@ -38,6 +39,7 @@ public class PaymentService {
     private final LedgerService ledgerService;
     private final IdempotencyService idempotencyService;
     private final AuditService auditService;
+    private final OutboxService outboxService;
     private final FraudScoringService fraudScoringService;
     private final ManualReviewService manualReviewService;
 
@@ -46,6 +48,7 @@ public class PaymentService {
                           LedgerService ledgerService,
                           IdempotencyService idempotencyService,
                           AuditService auditService,
+                          OutboxService outboxService,
                           FraudScoringService fraudScoringService,
                           ManualReviewService manualReviewService) {
         this.paymentRepository = paymentRepository;
@@ -53,6 +56,7 @@ public class PaymentService {
         this.ledgerService = ledgerService;
         this.idempotencyService = idempotencyService;
         this.auditService = auditService;
+        this.outboxService = outboxService;
         this.fraudScoringService = fraudScoringService;
         this.manualReviewService = manualReviewService;
     }
@@ -203,10 +207,9 @@ public class PaymentService {
         PaymentIntentEntity saved = paymentRepository.save(payment);
         recordMutation(scope, idempotencyKey, fingerprint, saved);
 
-        auditService.append(
+        emitPaymentMutationEvent(
                 "payment.reserved",
-                saved.getId(),
-                saved.getPayerAccountId(),
+                saved,
                 reserveJournal.id(),
                 correlationId,
                 Map.of(
@@ -254,10 +257,9 @@ public class PaymentService {
         PaymentIntentEntity saved = paymentRepository.save(payment);
         recordMutation(scope, idempotencyKey, fingerprint, saved);
 
-        auditService.append(
+        emitPaymentMutationEvent(
                 "payment.captured",
-                saved.getId(),
-                saved.getPayerAccountId(),
+                saved,
                 captureJournal.id(),
                 correlationId,
                 Map.of("status", saved.getStatus().name(), "fee", fee)
@@ -308,10 +310,9 @@ public class PaymentService {
         PaymentIntentEntity saved = paymentRepository.save(payment);
         recordMutation(scope, idempotencyKey, fingerprint, saved);
 
-        auditService.append(
+        emitPaymentMutationEvent(
                 "payment.refunded",
-                saved.getId(),
-                saved.getPayerAccountId(),
+                saved,
                 refundJournal.id(),
                 correlationId,
                 Map.of("status", saved.getStatus().name(), "reason", nullToBlank(request.reason()))
@@ -366,10 +367,9 @@ public class PaymentService {
         PaymentIntentEntity saved = paymentRepository.save(payment);
         recordMutation(scope, idempotencyKey, fingerprint, saved);
 
-        auditService.append(
+        emitPaymentMutationEvent(
                 "payment.cancelled",
-                saved.getId(),
-                saved.getPayerAccountId(),
+                saved,
                 reversalJournal.id(),
                 correlationId,
                 Map.of("status", saved.getStatus().name())
@@ -494,6 +494,28 @@ public class PaymentService {
                                 PaymentIntentEntity payment) {
         String responsePayload = payment.getId() + ":" + payment.getStatus().name() + ":" + payment.getUpdatedAt();
         idempotencyService.record(scope, idempotencyKey, requestFingerprint, responsePayload);
+    }
+
+    private void emitPaymentMutationEvent(String eventType,
+                                          PaymentIntentEntity payment,
+                                          UUID journalId,
+                                          String correlationId,
+                                          Map<String, Object> details) {
+        auditService.append(
+                eventType,
+                payment.getId(),
+                payment.getPayerAccountId(),
+                journalId,
+                correlationId,
+                details
+        );
+        outboxService.enqueue(
+                eventType,
+                payment.getId(),
+                journalId,
+                correlationId,
+                details
+        );
     }
 
     private String boolToken(Boolean value) {

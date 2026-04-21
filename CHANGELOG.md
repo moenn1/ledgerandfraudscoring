@@ -11,6 +11,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Derived operator investigation views for payment audit trails, retry corridors, and reconciliation repair playbooks built from live payment, ledger, review, and anomaly data.
 - A dedicated operator analytics surface for fraud trends, risk-score bands, settlement coverage, anomaly rollups, and backlog-aging reports derived from live payments and ledger state.
 - Ledger replay and verification endpoints for rebuilding account projections from immutable entries and flagging broken journals or payment lifecycle mismatches.
+- Transactional outbox persistence for reserve/capture/refund/cancel payment mutations, plus ledger verification findings for missing or duplicate audit/outbox events per payment mutation.
 
 ### Changed
 - Frontend operator docs now document hybrid API mode, optional bearer-token configuration, and live refresh behavior after manual-review decisions.

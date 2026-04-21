@@ -35,7 +35,7 @@ Net = 0
 - Daily scan for unbalanced journals (must be zero results).
 - Verify each payment lifecycle stage has expected journal types.
 - Detect duplicate reserve/capture journals for same reference.
-- Compare event stream counts vs ledger mutation counts.
+- Compare audit and outbox event counts vs reserve/capture/refund/cancel ledger mutation counts.
 
 ## Replay And Recovery Tooling
 
@@ -45,6 +45,7 @@ The backend now exposes additive ledger-operations endpoints that keep the immut
 - `GET /api/ledger/verification` runs invariant checks across the ledger and payment lifecycle. The report flags:
   - unbalanced journals
   - mixed-currency journals
+  - missing or duplicate audit/outbox events for reserve/capture/refund/cancel ledger mutations
   - payments whose persisted status does not match the journal types recorded for that payment
 
 ### Recovery Flow

@@ -5,6 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ledgerforge.payments.account.AccountEntity;
 import com.ledgerforge.payments.account.AccountRepository;
 import com.ledgerforge.payments.account.AccountStatus;
+import com.ledgerforge.payments.audit.AuditEventEntity;
+import com.ledgerforge.payments.audit.AuditEventRepository;
+import com.ledgerforge.payments.outbox.OutboxEventEntity;
+import com.ledgerforge.payments.outbox.OutboxEventRepository;
 import com.ledgerforge.payments.payment.PaymentIntentEntity;
 import com.ledgerforge.payments.payment.PaymentIntentRepository;
 import com.ledgerforge.payments.payment.PaymentStatus;
@@ -48,6 +52,12 @@ class LedgerControllerIntegrationTest {
 
     @Autowired
     private PaymentIntentRepository paymentIntentRepository;
+
+    @Autowired
+    private AuditEventRepository auditEventRepository;
+
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
 
     @Test
     void replayAccount_returnsRunningBalanceFromImmutableEntries() throws Exception {
@@ -140,12 +150,127 @@ class LedgerControllerIntegrationTest {
         assertThat(mismatch.get("unexpectedJournalTypes")).isEmpty();
     }
 
+    @Test
+    void verification_flagsMissingAuditAndOutboxEventsForPaymentMutation() throws Exception {
+        UUID payerAccountId = createAccount("missing-event-payer", "USD");
+        UUID payeeAccountId = createAccount("missing-event-payee", "USD");
+        UUID holdingAccountId = createAccount("missing-event-holding", "USD");
+
+        PaymentIntentEntity payment = createPayment(payerAccountId, payeeAccountId, new BigDecimal("30.00"), PaymentStatus.RESERVED);
+
+        JournalTransactionEntity reserveJournal = ledgerService.postJournal(
+                JournalType.RESERVE,
+                "payment:" + payment.getId() + ":reserve",
+                java.util.List.of(
+                        new LedgerLeg(payerAccountId, LedgerDirection.DEBIT, new BigDecimal("30.00"), "USD"),
+                        new LedgerLeg(holdingAccountId, LedgerDirection.CREDIT, new BigDecimal("30.00"), "USD")
+                )
+        );
+
+        String response = mockMvc.perform(get("/api/ledger/verification"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode json = objectMapper.readTree(response);
+
+        JsonNode auditFinding = findMutationEventFinding(json, payment.getId().toString(), "reserve", "AUDIT");
+        assertThat(auditFinding).isNotNull();
+        assertThat(auditFinding.get("journalType").asText()).isEqualTo("RESERVE");
+        assertThat(auditFinding.get("eventType").asText()).isEqualTo("payment.reserved");
+        assertThat(auditFinding.get("ledgerMutationCount").asInt()).isEqualTo(1);
+        assertThat(auditFinding.get("observedEventCount").asInt()).isEqualTo(0);
+        assertThat(auditFinding.get("missingEventCount").asInt()).isEqualTo(1);
+        assertThat(auditFinding.get("duplicateEventCount").asInt()).isEqualTo(0);
+        assertThat(auditFinding.get("journalIds")).extracting(JsonNode::asText)
+                .containsExactly(reserveJournal.getId().toString());
+
+        JsonNode outboxFinding = findMutationEventFinding(json, payment.getId().toString(), "reserve", "OUTBOX");
+        assertThat(outboxFinding).isNotNull();
+        assertThat(outboxFinding.get("missingEventCount").asInt()).isEqualTo(1);
+        assertThat(outboxFinding.get("duplicateEventCount").asInt()).isEqualTo(0);
+    }
+
+    @Test
+    void verification_flagsDuplicateAuditAndOutboxEventsForPaymentMutation() throws Exception {
+        UUID payerAccountId = createAccount("duplicate-event-payer", "USD");
+        UUID payeeAccountId = createAccount("duplicate-event-payee", "USD");
+        UUID holdingAccountId = createAccount("duplicate-event-holding", "USD");
+
+        PaymentIntentEntity payment = createPayment(payerAccountId, payeeAccountId, new BigDecimal("45.00"), PaymentStatus.RESERVED);
+
+        JournalTransactionEntity reserveJournal = ledgerService.postJournal(
+                JournalType.RESERVE,
+                "payment:" + payment.getId() + ":reserve",
+                java.util.List.of(
+                        new LedgerLeg(payerAccountId, LedgerDirection.DEBIT, new BigDecimal("45.00"), "USD"),
+                        new LedgerLeg(holdingAccountId, LedgerDirection.CREDIT, new BigDecimal("45.00"), "USD")
+                )
+        );
+
+        auditEventRepository.save(auditEvent(payment.getId(), reserveJournal.getId(), "payment.reserved"));
+        auditEventRepository.save(auditEvent(payment.getId(), reserveJournal.getId(), "payment.reserved"));
+        outboxEventRepository.save(outboxEvent(payment.getId(), reserveJournal.getId(), "payment.reserved"));
+        outboxEventRepository.save(outboxEvent(payment.getId(), reserveJournal.getId(), "payment.reserved"));
+
+        String response = mockMvc.perform(get("/api/ledger/verification"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode json = objectMapper.readTree(response);
+
+        JsonNode auditFinding = findMutationEventFinding(json, payment.getId().toString(), "reserve", "AUDIT");
+        assertThat(auditFinding).isNotNull();
+        assertThat(auditFinding.get("observedEventCount").asInt()).isEqualTo(2);
+        assertThat(auditFinding.get("missingEventCount").asInt()).isEqualTo(0);
+        assertThat(auditFinding.get("duplicateEventCount").asInt()).isEqualTo(1);
+
+        JsonNode outboxFinding = findMutationEventFinding(json, payment.getId().toString(), "reserve", "OUTBOX");
+        assertThat(outboxFinding).isNotNull();
+        assertThat(outboxFinding.get("observedEventCount").asInt()).isEqualTo(2);
+        assertThat(outboxFinding.get("missingEventCount").asInt()).isEqualTo(0);
+        assertThat(outboxFinding.get("duplicateEventCount").asInt()).isEqualTo(1);
+    }
+
     private UUID createAccount(String ownerId, String currency) {
         AccountEntity account = new AccountEntity();
         account.setOwnerId(ownerId);
         account.setCurrency(currency);
         account.setStatus(AccountStatus.ACTIVE);
         return accountRepository.save(account).getId();
+    }
+
+    private PaymentIntentEntity createPayment(UUID payerAccountId,
+                                              UUID payeeAccountId,
+                                              BigDecimal amount,
+                                              PaymentStatus status) {
+        PaymentIntentEntity payment = new PaymentIntentEntity();
+        payment.setPayerAccountId(payerAccountId);
+        payment.setPayeeAccountId(payeeAccountId);
+        payment.setAmount(amount);
+        payment.setCurrency("USD");
+        payment.setStatus(status);
+        payment.setIdempotencyKey("verification-payment-" + UUID.randomUUID());
+        return paymentIntentRepository.save(payment);
+    }
+
+    private AuditEventEntity auditEvent(UUID paymentId, UUID journalId, String eventType) {
+        AuditEventEntity event = new AuditEventEntity();
+        event.setPaymentId(paymentId);
+        event.setJournalId(journalId);
+        event.setEventType(eventType);
+        return event;
+    }
+
+    private OutboxEventEntity outboxEvent(UUID paymentId, UUID journalId, String eventType) {
+        OutboxEventEntity event = new OutboxEventEntity();
+        event.setPaymentId(paymentId);
+        event.setJournalId(journalId);
+        event.setEventType(eventType);
+        return event;
     }
 
     private LedgerEntryEntity entry(
@@ -172,6 +297,23 @@ class LedgerControllerIntegrationTest {
         while (iterator.hasNext()) {
             JsonNode candidate = iterator.next();
             if (expectedValue.equals(candidate.path(fieldName).asText())) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private JsonNode findMutationEventFinding(JsonNode json, String paymentId, String action, String eventSink) {
+        JsonNode findings = json.get("mutationEventReconciliationFindings");
+        if (findings == null || !findings.isArray()) {
+            return null;
+        }
+        Iterator<JsonNode> iterator = findings.elements();
+        while (iterator.hasNext()) {
+            JsonNode candidate = iterator.next();
+            if (paymentId.equals(candidate.path("paymentId").asText())
+                    && action.equals(candidate.path("action").asText())
+                    && eventSink.equals(candidate.path("eventSink").asText())) {
                 return candidate;
             }
         }
