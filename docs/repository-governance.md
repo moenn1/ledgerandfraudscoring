@@ -8,6 +8,12 @@ LedgerForge Payments treats CI/CD and release automation as part of production s
 - `main` is the integration branch and should receive changes through reviewed pull requests.
 - CI workflows are split by concern so backend, frontend, smoke validation, governance checks, and release automation can fail independently and stay reviewable.
 
+## Stacked Branch Closeout
+
+- When multiple delivery branches share the same base, land the branch that updates shared CI or repository controls first, then merge the backend or frontend feature branches in topological order from the lowest branch in the stack to the highest.
+- After the stack is integrated, new delivery branches must fork from the current `origin/main` head rather than from older feature branches or stale local `main` commits.
+- If a feature depends on an unmerged branch, document the intended merge order in `docs/repository-governance.md` or the nearest delivery note before additional branches are cut from that stack.
+
 ## GitHub Actions Coverage
 
 - `.github/workflows/governance.yml` enforces changelog and nearest-doc updates on pushes and pull requests.

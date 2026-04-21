@@ -21,6 +21,8 @@ Optional environment variables:
 - `LEDGERFORGE_AUTH_ISSUER` (default: `https://auth.ledgerforge.local`)
 - `LEDGERFORGE_AUTH_AUDIENCE` (default: `ledgerforge-operator-api`)
 - `LEDGERFORGE_AUTH_HMAC_SECRET` for locally signed operator tokens
+- `LEDGERFORGE_OPERATOR_BEARER_TOKEN` or `OPERATOR_BEARER_TOKEN` to supply an explicit bearer token for protected operator routes
+- `LEDGERFORGE_OPERATOR_TOKEN_SUBJECT` and `LEDGERFORGE_OPERATOR_TOKEN_ROLES` (default: `OPERATOR,ADMIN`) to control the auto-generated local smoke token
 
 ## Commands
 
@@ -36,4 +38,5 @@ Optional environment variables:
 
 - Scripts are intentionally tolerant while backend endpoints are still evolving.
 - `seed-demo.sh` stays tolerant for local iteration, while `smoke-test.sh` is the stricter release and CI gate.
+- Protected operator reads and mutation routes automatically receive a locally signed bearer token unless you override it with `LEDGERFORGE_OPERATOR_BEARER_TOKEN` or `OPERATOR_BEARER_TOKEN`.
 - Governance and docs validation scripts are kept compatible with the default macOS Bash runtime as well as GitHub-hosted runners.

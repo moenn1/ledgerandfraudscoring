@@ -25,6 +25,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Release automation now reruns the backend smoke gate before assembling or publishing artifacts.
 - Frontend operator docs now document hybrid API mode, optional bearer-token configuration, and live refresh behavior after manual-review decisions.
 - Repository-facing docs now use product and implementation language only, without internal workflow references.
+- Repository governance now documents stacked-branch merge ordering and requires new delivery branches to fork from the current `origin/main` head after a stack is closed out.
 - Payment lifecycle docs now reflect the implemented confirm flow reserving funds, manual-review holds, and cancel guards.
 - Ledger invariants documentation now includes the operator recovery flow for `/api/ledger/replay/accounts/{accountId}` and `/api/ledger/verification`.
 - Manual-review decision audit fields now use the authenticated reviewer identity instead of trusting a caller-supplied actor field.
@@ -40,6 +41,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Database migrations now reject invalid journal and ledger row shapes, assign stable per-journal `line_number` values, and block `UPDATE`/`DELETE` mutations on `journal_transactions` and `ledger_entries`, preserving append-only ledger semantics even when writes bypass the service layer.
 - Manual-review approvals now emit the same `payment.reserved` audit and outbox events as straight-through reserve flows, preventing reconciliation false positives when operator review posts the reserve journal.
 - Unexpected backend failures now return a sanitized `500` response, missing routes preserve `404`, and the H2 console is disabled by default unless explicitly enabled for local debugging.
+- Smoke and release demo scripts now attach a locally signed operator token by default so CI verification still passes after operator read and capture endpoints require RBAC.
 
 ### Documentation Policy
 - Every push must include corresponding documentation updates.
