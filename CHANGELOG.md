@@ -22,6 +22,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 ### Fixed
 - Backend payment integration tests now use transactional rollback so idempotency assertions stay isolated across test methods.
 - Live manual-review decisions in the operator console now refresh payment and ledger data after the backend response so approved cases reflect the reserved status and posted reserve journal instead of a guessed local transition.
+- Ledger verification now flags duplicate reserve/capture/reversal payment journals by payment and action, including the observed references, so repeated lifecycle journals no longer pass verification just because the payment status still matches the distinct journal types.
 
 ### Documentation Policy
 - Every push must include corresponding documentation updates.

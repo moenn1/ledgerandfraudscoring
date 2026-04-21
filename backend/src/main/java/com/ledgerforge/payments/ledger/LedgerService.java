@@ -157,9 +157,12 @@ public class LedgerService {
 
         List<LedgerVerificationResponse.MutationEventReconciliationFinding> mutationEventReconciliationFindings =
                 findMutationEventReconciliationFindings();
+        List<LedgerVerificationResponse.DuplicatePaymentJournalFinding> duplicatePaymentJournals =
+                findDuplicatePaymentJournalFindings();
         List<LedgerVerificationResponse.PaymentLifecycleMismatchFinding> paymentLifecycleMismatches = findPaymentLifecycleMismatches();
         int issueCount = unbalancedJournals.size()
                 + mixedCurrencyJournals.size()
+                + duplicatePaymentJournals.size()
                 + mutationEventReconciliationFindings.size()
                 + paymentLifecycleMismatches.size();
 
@@ -171,6 +174,7 @@ public class LedgerService {
                 issueCount,
                 unbalancedJournals,
                 mixedCurrencyJournals,
+                duplicatePaymentJournals,
                 mutationEventReconciliationFindings,
                 paymentLifecycleMismatches
         );
@@ -253,6 +257,43 @@ public class LedgerService {
         return paymentIntentRepository.findAllByOrderByCreatedAtAsc().stream()
                 .map(payment -> toLifecycleMismatch(payment, actualJournalTypesByPayment.getOrDefault(payment.getId(), Set.of())))
                 .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    private List<LedgerVerificationResponse.DuplicatePaymentJournalFinding> findDuplicatePaymentJournalFindings() {
+        Map<PaymentMutationKey, List<JournalTransactionEntity>> journalsByMutation = new LinkedHashMap<>();
+        for (JournalTransactionEntity journal : journalTransactionRepository.findAllByReferenceIdStartingWithOrderByCreatedAtAsc("payment:")) {
+            UUID paymentId = parsePaymentId(journal.getReferenceId());
+            String action = paymentAction(journal.getReferenceId());
+            if (paymentId == null || !isDuplicateSensitivePaymentMutation(journal.getType(), action)) {
+                continue;
+            }
+
+            journalsByMutation.computeIfAbsent(
+                    new PaymentMutationKey(paymentId, journal.getType(), action),
+                    ignored -> new ArrayList<>()
+            ).add(journal);
+        }
+
+        return journalsByMutation.entrySet().stream()
+                .filter(entry -> entry.getValue().size() > 1)
+                .sorted(Map.Entry.comparingByKey(
+                        Comparator.comparing(PaymentMutationKey::paymentId)
+                                .thenComparing(PaymentMutationKey::journalType)
+                                .thenComparing(PaymentMutationKey::action)
+                ))
+                .map(entry -> new LedgerVerificationResponse.DuplicatePaymentJournalFinding(
+                        entry.getKey().paymentId(),
+                        entry.getKey().journalType(),
+                        entry.getKey().action(),
+                        entry.getValue().stream()
+                                .map(JournalTransactionEntity::getReferenceId)
+                                .distinct()
+                                .toList(),
+                        entry.getValue().size(),
+                        entry.getValue().stream().map(JournalTransactionEntity::getId).toList(),
+                        duplicatePaymentJournalReason(entry.getKey(), entry.getValue().size())
+                ))
                 .toList();
     }
 
@@ -414,6 +455,15 @@ public class LedgerService {
         };
     }
 
+    private boolean isDuplicateSensitivePaymentMutation(JournalType journalType, String action) {
+        return switch (journalType) {
+            case RESERVE -> "reserve".equals(action);
+            case CAPTURE -> "capture".equals(action);
+            case REVERSAL -> "cancel".equals(action);
+            default -> false;
+        };
+    }
+
     private String expectedEventType(JournalType journalType, String action) {
         return switch (journalType) {
             case RESERVE -> "payment.reserved";
@@ -508,6 +558,13 @@ public class LedgerService {
         return "Payment " + key.paymentId() + " " + key.action() + " mutation has "
                 + String.join(" and ", issues)
                 + " " + eventSink.toLowerCase() + " events for " + eventType;
+    }
+
+    private String duplicatePaymentJournalReason(PaymentMutationKey key, int journalCount) {
+        return "Payment " + key.paymentId() + " has " + journalCount + " "
+                + key.journalType().name() + " journals for action " + key.action()
+                + " across the observed references"
+                + "; expected at most 1";
     }
 
     private int symmetricDifferenceSize(Set<JournalType> left, Set<JournalType> right) {
