@@ -57,12 +57,19 @@ The backend now exposes additive ledger-operations endpoints that keep the immut
 3. For account-impact analysis, run `GET /api/ledger/replay/accounts/{accountId}` on the affected accounts to recompute the running balance from the immutable entry stream. If replay returns `409 Conflict`, treat that as account-level currency corruption and use the `accountCurrencyMismatches` findings from verification to identify the bad journal and entry ids before posting compensating corrections.
 4. Repair state by appending the required compensating journal or by fixing the non-ledger projection/read model. Do not overwrite ledger rows.
 
-## Suggested Database Constraints
+## Database Guardrails
 
-- `ledger_entries(amount > 0)`
-- `ledger_entries(direction in ('DEBIT','CREDIT'))`
-- unique `(journal_id, account_id, direction, amount, line_number)` if line numbers used
-- foreign key from `journal_transactions.reference_id` to business object when feasible
+The schema now enforces the row-level ledger rules that should never depend on application code alone:
+
+- `journal_transactions.type` is constrained to the supported journal enums.
+- `journal_transactions.status` is constrained to the supported journal states.
+- `journal_transactions.reference_id` may be null, but blank or whitespace-padded values are rejected.
+- `ledger_entries(amount > 0)` remains enforced in the database.
+- `ledger_entries.direction` is constrained to `DEBIT` or `CREDIT`.
+- `ledger_entries.currency` must be an uppercase three-character code.
+- `journal_transactions` and `ledger_entries` are append-only at the database level; `UPDATE` and `DELETE` mutations are rejected and corrections must be posted as new journals.
+
+Future hardening can still add uniqueness based on an explicit line number if the schema grows one, or attach `reference_id` to business-object foreign keys where lifecycle ownership is strict enough.
 
 ## Projection Guidance
 
