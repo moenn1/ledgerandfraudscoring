@@ -14,6 +14,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Derived operator investigation views for payment audit trails, retry corridors, and reconciliation repair playbooks built from live payment, ledger, review, and anomaly data.
 - A dedicated operator analytics surface for fraud trends, risk-score bands, settlement coverage, anomaly rollups, and backlog-aging reports derived from live payments and ledger state.
 - Ledger replay and verification endpoints for rebuilding account projections from immutable entries and flagging broken journals or payment lifecycle mismatches.
+- Transactional outbox persistence for reserve/capture/refund/cancel payment mutations, plus ledger verification findings for missing or duplicate audit/outbox events per payment mutation.
 
 ### Changed
 - Repository indexes and script docs now describe the CI/CD workflow suite and governance checker entrypoint.
@@ -31,6 +32,11 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Backend payment integration tests now use transactional rollback so idempotency assertions stay isolated across test methods.
 - Frontend analytics typing now preserves `PaymentStatus` keys through grouped status rollups so the production build passes in CI.
 - Live manual-review decisions in the operator console now refresh payment and ledger data after the backend response so approved cases reflect the reserved status and posted reserve journal instead of a guessed local transition.
+- Ledger verification now flags duplicate reserve/capture/reversal payment journals by payment and action, including the observed references, so repeated lifecycle journals no longer pass verification just because the payment status still matches the distinct journal types.
+- Account replay now refuses to project balances when an account has ledger entries in another currency, and ledger verification reports the affected account, journal, and entry ids for operator repair.
+- Database migrations now reject invalid journal and ledger row shapes, assign stable per-journal `line_number` values, and block `UPDATE`/`DELETE` mutations on `journal_transactions` and `ledger_entries`, preserving append-only ledger semantics even when writes bypass the service layer.
+- Manual-review approvals now emit the same `payment.reserved` audit and outbox events as straight-through reserve flows, preventing reconciliation false positives when operator review posts the reserve journal.
+- Unexpected backend failures now return a sanitized `500` response, missing routes preserve `404`, and the H2 console is disabled by default unless explicitly enabled for local debugging.
 
 ### Documentation Policy
 - Every push must include corresponding documentation updates.

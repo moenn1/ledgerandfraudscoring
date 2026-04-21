@@ -18,6 +18,8 @@
 - Generate `correlation_id` at ingress if missing.
 - Propagate through API -> fraud -> ledger -> outbox.
 - Include correlation id in audit events and operator timeline payloads.
+- Persist payment mutation outbox rows for reserve/capture/refund/cancel so reconciliation can compare downstream event durability against posted ledger mutations.
+- Use the same `payment.reserved` audit and outbox events for manual-review approvals that post a reserve journal, so reserved funds remain reconcilable regardless of whether approval was automated or operator-driven.
 
 ### Audit Event Standard
 
@@ -58,6 +60,8 @@ Every financial mutation should emit an immutable event:
 - Validate request signatures for external callbacks/webhooks
 - Keep audit logs append-only and tamper-evident
 - Never expose raw secrets in logs or API responses
+- Sanitize unexpected `500` responses to a generic message and keep stack traces server-side only.
+- Keep the H2 console disabled by default. Enable it only for local debugging with `H2_CONSOLE_ENABLED=true`.
 
 ## Compliance-Inspired Practices
 

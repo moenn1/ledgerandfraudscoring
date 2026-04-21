@@ -34,32 +34,43 @@ Net = 0
 
 - Daily scan for unbalanced journals (must be zero results).
 - Verify each payment lifecycle stage has expected journal types.
-- Detect duplicate reserve/capture journals for same reference.
-- Compare event stream counts vs ledger mutation counts.
+- Detect duplicate reserve/capture/reversal journals for the same payment action, including the references involved.
+- Compare audit and outbox event counts vs reserve/capture/refund/cancel ledger mutation counts.
 
 ## Replay And Recovery Tooling
 
 The backend now exposes additive ledger-operations endpoints that keep the immutable ledger as the source of truth while helping operators rebuild projections and flag corrupt state after failures:
 
-- `GET /api/ledger/replay/accounts/{accountId}` returns the account's entries in chronological order with signed deltas and running balance. Use this to rebuild an account projection directly from immutable entries.
+- `GET /api/ledger/replay/accounts/{accountId}` returns the account's entries in chronological order with signed deltas and running balance. If any persisted ledger row for that account carries a different currency than the account itself, replay fails with `409 Conflict` instead of returning a mixed-currency balance.
 - `GET /api/ledger/verification` runs invariant checks across the ledger and payment lifecycle. The report flags:
   - unbalanced journals
   - mixed-currency journals
+  - account-level currency corruption where an entry currency does not match the owning account currency
+  - duplicate reserve/capture/reversal payment journals by payment and action, with the references involved
+  - missing or duplicate audit/outbox events for reserve/capture/refund/cancel ledger mutations
   - payments whose persisted status does not match the journal types recorded for that payment
 
 ### Recovery Flow
 
 1. Run `GET /api/ledger/verification`.
-2. If `allChecksPassed=false`, inspect the flagged journal or payment identifiers.
-3. For account-impact analysis, run `GET /api/ledger/replay/accounts/{accountId}` on the affected accounts to recompute the running balance from the immutable entry stream.
+2. If `allChecksPassed=false`, inspect the flagged journal or payment identifiers and determine whether the fix is an additive compensating journal, an event relay repair, or a duplicate payment mutation that must be contained.
+3. For account-impact analysis, run `GET /api/ledger/replay/accounts/{accountId}` on the affected accounts to recompute the running balance from the immutable entry stream. If replay returns `409 Conflict`, treat that as account-level currency corruption and use the `accountCurrencyMismatches` findings from verification to identify the bad journal and entry ids before posting compensating corrections.
 4. Repair state by appending the required compensating journal or by fixing the non-ledger projection/read model. Do not overwrite ledger rows.
 
-## Suggested Database Constraints
+## Database Guardrails
 
-- `ledger_entries(amount > 0)`
-- `ledger_entries(direction in ('DEBIT','CREDIT'))`
-- unique `(journal_id, account_id, direction, amount, line_number)` if line numbers used
-- foreign key from `journal_transactions.reference_id` to business object when feasible
+The schema now enforces the row-level ledger rules that should never depend on application code alone:
+
+- `journal_transactions.type` is constrained to the supported journal enums.
+- `journal_transactions.status` is constrained to the supported journal states.
+- `journal_transactions.reference_id` may be null, but blank or whitespace-padded values are rejected.
+- `ledger_entries(amount > 0)` remains enforced in the database.
+- `ledger_entries.direction` is constrained to `DEBIT` or `CREDIT`.
+- `ledger_entries.line_number` is a positive per-journal sequence, and `(journal_id, line_number)` is unique for stable audit ordering.
+- `ledger_entries.currency` must be an uppercase three-character code.
+- `journal_transactions` and `ledger_entries` are append-only at the database level; `UPDATE` and `DELETE` mutations are rejected and corrections must be posted as new journals.
+
+Future hardening can still attach `reference_id` to business-object foreign keys where lifecycle ownership is strict enough.
 
 ## Projection Guidance
 
