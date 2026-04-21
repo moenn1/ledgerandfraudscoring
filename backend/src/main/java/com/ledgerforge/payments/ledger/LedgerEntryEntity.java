@@ -32,6 +32,9 @@ public class LedgerEntryEntity {
     @Column(nullable = false, length = 10)
     private LedgerDirection direction;
 
+    @Column(name = "line_number", nullable = false)
+    private Integer lineNumber;
+
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal amount;
 
@@ -81,6 +84,14 @@ public class LedgerEntryEntity {
 
     public void setDirection(LedgerDirection direction) {
         this.direction = direction;
+    }
+
+    public Integer getLineNumber() {
+        return lineNumber;
+    }
+
+    public void setLineNumber(Integer lineNumber) {
+        this.lineNumber = lineNumber;
     }
 
     public BigDecimal getAmount() {

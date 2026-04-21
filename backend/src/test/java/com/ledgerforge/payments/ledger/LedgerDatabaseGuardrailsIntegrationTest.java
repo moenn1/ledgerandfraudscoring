@@ -71,28 +71,54 @@ class LedgerDatabaseGuardrailsIntegrationTest {
 
         assertThatThrownBy(() -> jdbcTemplate.update(
                 """
-                        insert into ledger_entries (id, journal_id, account_id, direction, amount, currency, created_at)
-                        values (?, ?, ?, ?, ?, ?, current_timestamp)
+                        insert into ledger_entries (id, journal_id, account_id, direction, amount, currency, created_at, line_number)
+                        values (?, ?, ?, ?, ?, ?, current_timestamp, ?)
                         """,
                 UUID.randomUUID(),
                 journal.id(),
                 account.getId(),
                 "SIDEWAYS",
                 new BigDecimal("1.00"),
-                "USD"
+                "USD",
+                3
         )).isInstanceOf(DataAccessException.class);
 
         assertThatThrownBy(() -> jdbcTemplate.update(
                 """
-                        insert into ledger_entries (id, journal_id, account_id, direction, amount, currency, created_at)
-                        values (?, ?, ?, ?, ?, ?, current_timestamp)
+                        insert into ledger_entries (id, journal_id, account_id, direction, amount, currency, created_at, line_number)
+                        values (?, ?, ?, ?, ?, ?, current_timestamp, ?)
                         """,
                 UUID.randomUUID(),
                 journal.id(),
                 account.getId(),
                 "DEBIT",
                 new BigDecimal("1.00"),
-                "usd"
+                "usd",
+                4
+        )).isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
+    void assignsStableLineNumbersAndRejectsDuplicateLineNumbers() {
+        JournalResponse journal = createBalancedJournal("guardrail-lines-" + UUID.randomUUID());
+        AccountEntity extraAccount = createAccount("guardrail-extra-" + UUID.randomUUID(), "USD");
+
+        assertThat(journal.entries())
+                .extracting(LedgerEntryResponse::lineNumber)
+                .containsExactly(1, 2);
+
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                """
+                        insert into ledger_entries (id, journal_id, account_id, direction, amount, currency, created_at, line_number)
+                        values (?, ?, ?, ?, ?, ?, current_timestamp, ?)
+                        """,
+                UUID.randomUUID(),
+                journal.id(),
+                extraAccount.getId(),
+                "DEBIT",
+                new BigDecimal("1.00"),
+                "USD",
+                1
         )).isInstanceOf(DataAccessException.class);
     }
 

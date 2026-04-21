@@ -66,10 +66,11 @@ The schema now enforces the row-level ledger rules that should never depend on a
 - `journal_transactions.reference_id` may be null, but blank or whitespace-padded values are rejected.
 - `ledger_entries(amount > 0)` remains enforced in the database.
 - `ledger_entries.direction` is constrained to `DEBIT` or `CREDIT`.
+- `ledger_entries.line_number` is a positive per-journal sequence, and `(journal_id, line_number)` is unique for stable audit ordering.
 - `ledger_entries.currency` must be an uppercase three-character code.
 - `journal_transactions` and `ledger_entries` are append-only at the database level; `UPDATE` and `DELETE` mutations are rejected and corrections must be posted as new journals.
 
-Future hardening can still add uniqueness based on an explicit line number if the schema grows one, or attach `reference_id` to business-object foreign keys where lifecycle ownership is strict enough.
+Future hardening can still attach `reference_id` to business-object foreign keys where lifecycle ownership is strict enough.
 
 ## Projection Guidance
 

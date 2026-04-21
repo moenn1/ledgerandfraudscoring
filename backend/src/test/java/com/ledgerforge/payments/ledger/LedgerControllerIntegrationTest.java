@@ -109,9 +109,9 @@ class LedgerControllerIntegrationTest {
         JournalTransactionEntity corruptedJournal = paymentJournal(JournalType.PAYMENT, "replay-corrupt-1");
         corruptedJournal = journalTransactionRepository.save(corruptedJournal);
         LedgerEntryEntity corruptedEntry = ledgerEntryRepository.save(
-                entry(corruptedJournal, corruptedAccountId, LedgerDirection.DEBIT, "10.00", "EUR")
+                entry(corruptedJournal, corruptedAccountId, LedgerDirection.DEBIT, 1, "10.00", "EUR")
         );
-        ledgerEntryRepository.save(entry(corruptedJournal, counterpartAccountId, LedgerDirection.CREDIT, "10.00", "EUR"));
+        ledgerEntryRepository.save(entry(corruptedJournal, counterpartAccountId, LedgerDirection.CREDIT, 2, "10.00", "EUR"));
 
         String response = mockMvc.perform(get("/api/ledger/replay/accounts/{accountId}", corruptedAccountId))
                 .andExpect(status().isConflict())
@@ -138,8 +138,8 @@ class LedgerControllerIntegrationTest {
         brokenJournal.setReferenceId("manual-bad-journal");
         brokenJournal = journalTransactionRepository.save(brokenJournal);
 
-        ledgerEntryRepository.save(entry(brokenJournal, usdAccountId, LedgerDirection.DEBIT, "10.00", "USD"));
-        ledgerEntryRepository.save(entry(brokenJournal, eurAccountId, LedgerDirection.CREDIT, "9.00", "EUR"));
+        ledgerEntryRepository.save(entry(brokenJournal, usdAccountId, LedgerDirection.DEBIT, 1, "10.00", "USD"));
+        ledgerEntryRepository.save(entry(brokenJournal, eurAccountId, LedgerDirection.CREDIT, 2, "9.00", "EUR"));
 
         PaymentIntentEntity mismatchedPayment = new PaymentIntentEntity();
         mismatchedPayment.setPayerAccountId(usdAccountId);
@@ -184,9 +184,9 @@ class LedgerControllerIntegrationTest {
         JournalTransactionEntity corruptedJournal = paymentJournal(JournalType.PAYMENT, "verification-account-currency-corrupt");
         corruptedJournal = journalTransactionRepository.save(corruptedJournal);
         LedgerEntryEntity corruptedEntry = ledgerEntryRepository.save(
-                entry(corruptedJournal, corruptedAccountId, LedgerDirection.DEBIT, "12.00", "EUR")
+                entry(corruptedJournal, corruptedAccountId, LedgerDirection.DEBIT, 1, "12.00", "EUR")
         );
-        ledgerEntryRepository.save(entry(corruptedJournal, counterpartAccountId, LedgerDirection.CREDIT, "12.00", "EUR"));
+        ledgerEntryRepository.save(entry(corruptedJournal, counterpartAccountId, LedgerDirection.CREDIT, 2, "12.00", "EUR"));
 
         String response = mockMvc.perform(get("/api/ledger/verification"))
                 .andExpect(status().isOk())
@@ -305,13 +305,13 @@ class LedgerControllerIntegrationTest {
 
         JournalTransactionEntity firstReserveJournal = paymentJournal(JournalType.RESERVE, firstReferenceId);
         firstReserveJournal = journalTransactionRepository.save(firstReserveJournal);
-        ledgerEntryRepository.save(entry(firstReserveJournal, payerAccountId, LedgerDirection.DEBIT, "60.00", "USD"));
-        ledgerEntryRepository.save(entry(firstReserveJournal, holdingAccountId, LedgerDirection.CREDIT, "60.00", "USD"));
+        ledgerEntryRepository.save(entry(firstReserveJournal, payerAccountId, LedgerDirection.DEBIT, 1, "60.00", "USD"));
+        ledgerEntryRepository.save(entry(firstReserveJournal, holdingAccountId, LedgerDirection.CREDIT, 2, "60.00", "USD"));
 
         JournalTransactionEntity duplicateReserveJournal = paymentJournal(JournalType.RESERVE, duplicateReferenceId);
         duplicateReserveJournal = journalTransactionRepository.save(duplicateReserveJournal);
-        ledgerEntryRepository.save(entry(duplicateReserveJournal, payerAccountId, LedgerDirection.DEBIT, "60.00", "USD"));
-        ledgerEntryRepository.save(entry(duplicateReserveJournal, holdingAccountId, LedgerDirection.CREDIT, "60.00", "USD"));
+        ledgerEntryRepository.save(entry(duplicateReserveJournal, payerAccountId, LedgerDirection.DEBIT, 1, "60.00", "USD"));
+        ledgerEntryRepository.save(entry(duplicateReserveJournal, holdingAccountId, LedgerDirection.CREDIT, 2, "60.00", "USD"));
 
         auditEventRepository.save(auditEvent(payment.getId(), firstReserveJournal.getId(), "payment.reserved"));
         auditEventRepository.save(auditEvent(payment.getId(), duplicateReserveJournal.getId(), "payment.reserved"));
@@ -394,6 +394,7 @@ class LedgerControllerIntegrationTest {
             JournalTransactionEntity journal,
             UUID accountId,
             LedgerDirection direction,
+            int lineNumber,
             String amount,
             String currency
     ) {
@@ -401,6 +402,7 @@ class LedgerControllerIntegrationTest {
         entry.setJournal(journal);
         entry.setAccountId(accountId);
         entry.setDirection(direction);
+        entry.setLineNumber(lineNumber);
         entry.setAmount(new BigDecimal(amount));
         entry.setCurrency(currency);
         return entry;

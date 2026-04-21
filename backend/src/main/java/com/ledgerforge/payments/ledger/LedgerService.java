@@ -71,7 +71,7 @@ public class LedgerService {
     @Transactional(readOnly = true)
     public JournalResponse getJournal(UUID journalId) {
         JournalTransactionEntity journal = getJournalOrFail(journalId);
-        List<LedgerEntryEntity> entries = ledgerEntryRepository.findByJournal_IdOrderByCreatedAtAsc(journalId);
+        List<LedgerEntryEntity> entries = ledgerEntryRepository.findByJournal_IdOrderByLineNumberAsc(journalId);
         return JournalResponse.from(journal, entries);
     }
 
@@ -144,7 +144,7 @@ public class LedgerService {
                 .map(row -> {
                     UUID journalId = (UUID) row[0];
                     JournalTransactionEntity journal = journalsById.get(journalId);
-                    List<String> currencies = ledgerEntryRepository.findByJournal_IdOrderByCreatedAtAsc(journalId).stream()
+                    List<String> currencies = ledgerEntryRepository.findByJournal_IdOrderByLineNumberAsc(journalId).stream()
                             .map(LedgerEntryEntity::getCurrency)
                             .distinct()
                             .sorted()
@@ -225,9 +225,10 @@ public class LedgerService {
 
         try {
             JournalTransactionEntity savedJournal = journalTransactionRepository.save(journal);
-            List<LedgerEntryEntity> entries = requestedLegs.stream()
-                    .map(leg -> toLedgerEntry(savedJournal, leg))
-                    .toList();
+            List<LedgerEntryEntity> entries = new ArrayList<>(requestedLegs.size());
+            for (int index = 0; index < requestedLegs.size(); index++) {
+                entries.add(toLedgerEntry(savedJournal, requestedLegs.get(index), index + 1));
+            }
             List<LedgerEntryEntity> savedEntries = ledgerEntryRepository.saveAll(entries);
             return JournalResponse.from(savedJournal, savedEntries);
         } catch (DataIntegrityViolationException ex) {
@@ -731,18 +732,19 @@ public class LedgerService {
         }
     }
 
-    private LedgerEntryEntity toLedgerEntry(JournalTransactionEntity journal, LedgerLeg leg) {
+    private LedgerEntryEntity toLedgerEntry(JournalTransactionEntity journal, LedgerLeg leg, int lineNumber) {
         LedgerEntryEntity entry = new LedgerEntryEntity();
         entry.setJournal(journal);
         entry.setAccountId(leg.accountId());
         entry.setDirection(leg.direction());
+        entry.setLineNumber(lineNumber);
         entry.setAmount(leg.amount());
         entry.setCurrency(leg.currency());
         return entry;
     }
 
     private void assertIdempotentMatch(JournalTransactionEntity existingJournal, List<LedgerLeg> requestedLegs) {
-        List<LedgerEntryEntity> existingEntries = ledgerEntryRepository.findByJournal_IdOrderByCreatedAtAsc(existingJournal.getId());
+        List<LedgerEntryEntity> existingEntries = ledgerEntryRepository.findByJournal_IdOrderByLineNumberAsc(existingJournal.getId());
         Map<LegKey, Long> existing = toLegCounts(existingEntries.stream()
                 .map(entry -> new LedgerLeg(entry.getAccountId(), entry.getDirection(), entry.getAmount(), entry.getCurrency()))
                 .toList());
