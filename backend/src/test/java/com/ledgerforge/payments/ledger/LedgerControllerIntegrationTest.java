@@ -12,6 +12,7 @@ import com.ledgerforge.payments.outbox.OutboxEventRepository;
 import com.ledgerforge.payments.payment.PaymentIntentEntity;
 import com.ledgerforge.payments.payment.PaymentIntentRepository;
 import com.ledgerforge.payments.payment.PaymentStatus;
+import com.ledgerforge.payments.security.TestOperatorTokens;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -82,7 +83,8 @@ class LedgerControllerIntegrationTest {
                 )
         ));
 
-        String response = mockMvc.perform(get("/api/ledger/replay/accounts/{accountId}", payerId))
+        String response = mockMvc.perform(get("/api/ledger/replay/accounts/{accountId}", payerId)
+                        .header("Authorization", TestOperatorTokens.bearer("admin.replay@ledgerforge.local", "ADMIN")))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
@@ -113,7 +115,8 @@ class LedgerControllerIntegrationTest {
         );
         ledgerEntryRepository.save(entry(corruptedJournal, counterpartAccountId, LedgerDirection.CREDIT, 2, "10.00", "EUR"));
 
-        String response = mockMvc.perform(get("/api/ledger/replay/accounts/{accountId}", corruptedAccountId))
+        String response = mockMvc.perform(get("/api/ledger/replay/accounts/{accountId}", corruptedAccountId)
+                        .header("Authorization", TestOperatorTokens.bearer("admin.replay@ledgerforge.local", "ADMIN")))
                 .andExpect(status().isConflict())
                 .andReturn()
                 .getResponse()
@@ -150,7 +153,8 @@ class LedgerControllerIntegrationTest {
         mismatchedPayment.setIdempotencyKey("verification-mismatch-" + UUID.randomUUID());
         mismatchedPayment = paymentIntentRepository.save(mismatchedPayment);
 
-        String response = mockMvc.perform(get("/api/ledger/verification"))
+        String response = mockMvc.perform(get("/api/ledger/verification")
+                        .header("Authorization", TestOperatorTokens.bearer("admin.verify@ledgerforge.local", "ADMIN")))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
@@ -188,7 +192,8 @@ class LedgerControllerIntegrationTest {
         );
         ledgerEntryRepository.save(entry(corruptedJournal, counterpartAccountId, LedgerDirection.CREDIT, 2, "12.00", "EUR"));
 
-        String response = mockMvc.perform(get("/api/ledger/verification"))
+        String response = mockMvc.perform(get("/api/ledger/verification")
+                        .header("Authorization", TestOperatorTokens.bearer("admin.verify@ledgerforge.local", "ADMIN")))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
@@ -225,7 +230,8 @@ class LedgerControllerIntegrationTest {
                 )
         );
 
-        String response = mockMvc.perform(get("/api/ledger/verification"))
+        String response = mockMvc.perform(get("/api/ledger/verification")
+                        .header("Authorization", TestOperatorTokens.bearer("admin.verify@ledgerforge.local", "ADMIN")))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
@@ -272,7 +278,8 @@ class LedgerControllerIntegrationTest {
         outboxEventRepository.save(outboxEvent(payment.getId(), reserveJournal.getId(), "payment.reserved"));
         outboxEventRepository.save(outboxEvent(payment.getId(), reserveJournal.getId(), "payment.reserved"));
 
-        String response = mockMvc.perform(get("/api/ledger/verification"))
+        String response = mockMvc.perform(get("/api/ledger/verification")
+                        .header("Authorization", TestOperatorTokens.bearer("admin.verify@ledgerforge.local", "ADMIN")))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
@@ -318,7 +325,8 @@ class LedgerControllerIntegrationTest {
         outboxEventRepository.save(outboxEvent(payment.getId(), firstReserveJournal.getId(), "payment.reserved"));
         outboxEventRepository.save(outboxEvent(payment.getId(), duplicateReserveJournal.getId(), "payment.reserved"));
 
-        String response = mockMvc.perform(get("/api/ledger/verification"))
+        String response = mockMvc.perform(get("/api/ledger/verification")
+                        .header("Authorization", TestOperatorTokens.bearer("admin.verify@ledgerforge.local", "ADMIN")))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()

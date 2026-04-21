@@ -18,6 +18,9 @@ Optional environment variables:
 - `PAYER_OWNER_ID` / `PAYEE_OWNER_ID` for demo seeding account owners
 - `SMOKE_PAYMENT_AMOUNT_CENTS` for the smoke payment amount (default: `500`)
 - `TIMEOUT_SECONDS` for readiness wait (default: `60`)
+- `LEDGERFORGE_AUTH_ISSUER` (default: `https://auth.ledgerforge.local`)
+- `LEDGERFORGE_AUTH_AUDIENCE` (default: `ledgerforge-operator-api`)
+- `LEDGERFORGE_AUTH_HMAC_SECRET` for locally signed operator tokens
 
 ## Commands
 
@@ -27,6 +30,7 @@ Optional environment variables:
 - `./scripts/demo-run.sh`: runs all of the above in order
 - `./scripts/check-governance-docs.sh`: validates changelog and nearest-doc updates for workflow and code changes
 - `./scripts/check-docs-index.sh`: validates that docs indexes and workflow references match the repository layout
+- `python3 ./scripts/generate-operator-token.py --subject operator.ui@ledgerforge.local --role VIEWER`: prints a local operator bearer token
 
 ## Notes
 

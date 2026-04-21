@@ -15,6 +15,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - A dedicated operator analytics surface for fraud trends, risk-score bands, settlement coverage, anomaly rollups, and backlog-aging reports derived from live payments and ledger state.
 - Ledger replay and verification endpoints for rebuilding account projections from immutable entries and flagging broken journals or payment lifecycle mismatches.
 - Transactional outbox persistence for reserve/capture/refund/cancel payment mutations, plus ledger verification findings for missing or duplicate audit/outbox events per payment mutation.
+- JWT-backed operator authentication and RBAC for capture/refund/cancel, fraud review decisions, and ledger replay/verification endpoints, plus a local token generator script for development.
 
 ### Changed
 - Repository indexes and script docs now describe the CI/CD workflow suite and governance checker entrypoint.
@@ -26,6 +27,8 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Repository-facing docs now use product and implementation language only, without internal workflow references.
 - Payment lifecycle docs now reflect the implemented confirm flow reserving funds, manual-review holds, and cancel guards.
 - Ledger invariants documentation now includes the operator recovery flow for `/api/ledger/replay/accounts/{accountId}` and `/api/ledger/verification`.
+- Manual-review decision audit fields now use the authenticated reviewer identity instead of trusting a caller-supplied actor field.
+- Payment and account inspection endpoints now require authenticated `Viewer` access so operator-console read paths no longer remain publicly enumerable while mutation routes are protected.
 
 ### Fixed
 - Governance documentation validation now uses Bash 3 compatible iteration so the same check runs on macOS workstations and GitHub-hosted Linux runners.
