@@ -7,7 +7,7 @@ This runbook provides a practical path to demo the platform once backend/fronten
 - Java 17+
 - Maven 3.8+
 - Node.js 18+
-- Docker + Docker Compose (for Postgres/Kafka/Redis optional stack)
+- Docker + Docker Compose (optional, for the planned Postgres/Kafka/Redis stack tracked separately from the current in-memory smoke flow)
 
 ## Suggested Local Topology
 
@@ -28,22 +28,24 @@ flowchart LR
    - `mvn spring-boot:run`
 3. Start frontend:
    - `cd frontend`
-   - `npm install`
+   - `npm ci`
    - `npm run dev`
 4. Open dashboard:
    - `http://localhost:3000`
 
+For the currently checked-in fast path, `./scripts/demo-run.sh` starts from the in-memory backend profile and now validates account creation, payment create/confirm/capture, and ledger verification without requiring the optional container stack.
+
 ## Demo Script
 
-1. Create two accounts (`payer`, `payee`) in same currency.
-2. Fund payer via seed/admin endpoint.
-3. Create payment intent with idempotency key.
-4. Confirm payment and show fraud score + decision.
-5. Capture payment and inspect ledger entries.
+1. Create two accounts (`payer`, `payee`) in the same currency.
+2. Create a payment intent with an idempotency key.
+3. Confirm payment and show the fraud score plus decision.
+4. Capture payment and inspect ledger entries.
+5. Run `/api/ledger/verification` and show that all ledger checks pass.
 6. Query account balances and show projection correctness.
-7. Trigger high-risk payment and show manual review queue.
-8. Approve/reject review case and verify state transitions.
-9. Run reconciliation endpoint and show no mismatches.
+7. Trigger a high-risk payment and show the manual review queue.
+8. Approve or reject the review case and verify state transitions.
+9. Run reconciliation endpoints and show no mismatches.
 
 ## Verification Checklist
 
