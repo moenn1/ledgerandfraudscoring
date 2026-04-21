@@ -84,6 +84,7 @@ public class LedgerService {
         BigDecimal runningBalance = BigDecimal.ZERO;
         List<LedgerReplayResponse.ReplayEntry> replayEntries = new ArrayList<>();
         for (LedgerEntryEntity entry : entries) {
+            assertReplayCurrencyIntegrity(account, entry);
             BigDecimal signedImpact = signedAmount(entry);
             runningBalance = runningBalance.add(signedImpact);
             replayEntries.add(new LedgerReplayResponse.ReplayEntry(
@@ -112,6 +113,8 @@ public class LedgerService {
     public LedgerVerificationResponse verifyLedger() {
         List<Object[]> unbalancedRows = ledgerEntryRepository.findUnbalancedJournalAggregates();
         List<Object[]> mixedCurrencyRows = ledgerEntryRepository.findMixedCurrencyJournalAggregates();
+        List<LedgerVerificationResponse.AccountCurrencyMismatchFinding> accountCurrencyMismatches =
+                findAccountCurrencyMismatchFindings();
 
         Set<UUID> flaggedJournalIds = new HashSet<>();
         for (Object[] row : unbalancedRows) {
@@ -162,6 +165,7 @@ public class LedgerService {
         List<LedgerVerificationResponse.PaymentLifecycleMismatchFinding> paymentLifecycleMismatches = findPaymentLifecycleMismatches();
         int issueCount = unbalancedJournals.size()
                 + mixedCurrencyJournals.size()
+                + accountCurrencyMismatches.size()
                 + duplicatePaymentJournals.size()
                 + mutationEventReconciliationFindings.size()
                 + paymentLifecycleMismatches.size();
@@ -174,6 +178,7 @@ public class LedgerService {
                 issueCount,
                 unbalancedJournals,
                 mixedCurrencyJournals,
+                accountCurrencyMismatches,
                 duplicatePaymentJournals,
                 mutationEventReconciliationFindings,
                 paymentLifecycleMismatches
@@ -257,6 +262,30 @@ public class LedgerService {
         return paymentIntentRepository.findAllByOrderByCreatedAtAsc().stream()
                 .map(payment -> toLifecycleMismatch(payment, actualJournalTypesByPayment.getOrDefault(payment.getId(), Set.of())))
                 .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    private List<LedgerVerificationResponse.AccountCurrencyMismatchFinding> findAccountCurrencyMismatchFindings() {
+        List<LedgerEntryEntity> mismatchedEntries = ledgerEntryRepository.findAccountCurrencyMismatchedEntries();
+        if (mismatchedEntries.isEmpty()) {
+            return List.of();
+        }
+
+        Map<UUID, AccountEntity> accountsById = accountRepository.findAllById(
+                        mismatchedEntries.stream()
+                                .map(LedgerEntryEntity::getAccountId)
+                                .collect(Collectors.toSet())
+                ).stream()
+                .collect(Collectors.toMap(AccountEntity::getId, Function.identity()));
+
+        return mismatchedEntries.stream()
+                .collect(Collectors.groupingBy(
+                        LedgerEntryEntity::getAccountId,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ))
+                .entrySet().stream()
+                .map(entry -> toAccountCurrencyMismatchFinding(accountsById.get(entry.getKey()), entry.getValue()))
                 .toList();
     }
 
@@ -584,8 +613,51 @@ public class LedgerService {
                 .toList();
     }
 
+    private LedgerVerificationResponse.AccountCurrencyMismatchFinding toAccountCurrencyMismatchFinding(
+            AccountEntity account,
+            List<LedgerEntryEntity> mismatchedEntries
+    ) {
+        List<String> entryCurrencies = mismatchedEntries.stream()
+                .map(LedgerEntryEntity::getCurrency)
+                .distinct()
+                .sorted()
+                .toList();
+        List<UUID> entryIds = mismatchedEntries.stream()
+                .map(LedgerEntryEntity::getId)
+                .toList();
+        List<UUID> journalIds = mismatchedEntries.stream()
+                .map(entry -> entry.getJournal().getId())
+                .distinct()
+                .toList();
+
+        return new LedgerVerificationResponse.AccountCurrencyMismatchFinding(
+                account.getId(),
+                account.getOwnerId(),
+                account.getCurrency(),
+                entryCurrencies,
+                mismatchedEntries.size(),
+                entryIds,
+                journalIds,
+                "Account " + account.getId()
+                        + " expects " + account.getCurrency()
+                        + " but has ledger entries posted in " + entryCurrencies
+        );
+    }
+
     private BigDecimal signedAmount(LedgerEntryEntity entry) {
         return entry.getDirection() == LedgerDirection.CREDIT ? entry.getAmount() : entry.getAmount().negate();
+    }
+
+    private void assertReplayCurrencyIntegrity(AccountEntity account, LedgerEntryEntity entry) {
+        if (!account.getCurrency().equals(entry.getCurrency())) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "Ledger corruption detected for account " + account.getId()
+                            + ": expected " + account.getCurrency()
+                            + " but replay encountered entry " + entry.getId()
+                            + " in " + entry.getCurrency()
+            );
+        }
     }
 
     private BigDecimal normalizeNumeric(BigDecimal amount) {

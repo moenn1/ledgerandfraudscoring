@@ -41,10 +41,11 @@ Net = 0
 
 The backend now exposes additive ledger-operations endpoints that keep the immutable ledger as the source of truth while helping operators rebuild projections and flag corrupt state after failures:
 
-- `GET /api/ledger/replay/accounts/{accountId}` returns the account's entries in chronological order with signed deltas and running balance. Use this to rebuild an account projection directly from immutable entries.
+- `GET /api/ledger/replay/accounts/{accountId}` returns the account's entries in chronological order with signed deltas and running balance. If any persisted ledger row for that account carries a different currency than the account itself, replay fails with `409 Conflict` instead of returning a mixed-currency balance.
 - `GET /api/ledger/verification` runs invariant checks across the ledger and payment lifecycle. The report flags:
   - unbalanced journals
   - mixed-currency journals
+  - account-level currency corruption where an entry currency does not match the owning account currency
   - duplicate reserve/capture/reversal payment journals by payment and action, with the references involved
   - missing or duplicate audit/outbox events for reserve/capture/refund/cancel ledger mutations
   - payments whose persisted status does not match the journal types recorded for that payment
@@ -53,7 +54,7 @@ The backend now exposes additive ledger-operations endpoints that keep the immut
 
 1. Run `GET /api/ledger/verification`.
 2. If `allChecksPassed=false`, inspect the flagged journal or payment identifiers and determine whether the fix is an additive compensating journal, an event relay repair, or a duplicate payment mutation that must be contained.
-3. For account-impact analysis, run `GET /api/ledger/replay/accounts/{accountId}` on the affected accounts to recompute the running balance from the immutable entry stream.
+3. For account-impact analysis, run `GET /api/ledger/replay/accounts/{accountId}` on the affected accounts to recompute the running balance from the immutable entry stream. If replay returns `409 Conflict`, treat that as account-level currency corruption and use the `accountCurrencyMismatches` findings from verification to identify the bad journal and entry ids before posting compensating corrections.
 4. Repair state by appending the required compensating journal or by fixing the non-ledger projection/read model. Do not overwrite ledger rows.
 
 ## Suggested Database Constraints

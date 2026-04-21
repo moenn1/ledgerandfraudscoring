@@ -46,4 +46,13 @@ public interface LedgerEntryRepository extends JpaRepository<LedgerEntryEntity, 
             having count(distinct le.currency) > 1
             """)
     List<Object[]> findMixedCurrencyJournalAggregates();
+
+    @Query("""
+            select le
+            from LedgerEntryEntity le, AccountEntity a
+            where le.accountId = a.id
+              and le.currency <> a.currency
+            order by le.accountId asc, le.createdAt asc, le.id asc
+            """)
+    List<LedgerEntryEntity> findAccountCurrencyMismatchedEntries();
 }

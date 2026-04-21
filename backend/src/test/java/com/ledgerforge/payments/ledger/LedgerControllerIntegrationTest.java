@@ -102,6 +102,32 @@ class LedgerControllerIntegrationTest {
     }
 
     @Test
+    void replayAccount_failsWhenAccountEntriesContainAnotherCurrency() throws Exception {
+        UUID corruptedAccountId = createAccount("replay-corrupt-usd", "USD");
+        UUID counterpartAccountId = createAccount("replay-corrupt-eur", "EUR");
+
+        JournalTransactionEntity corruptedJournal = paymentJournal(JournalType.PAYMENT, "replay-corrupt-1");
+        corruptedJournal = journalTransactionRepository.save(corruptedJournal);
+        LedgerEntryEntity corruptedEntry = ledgerEntryRepository.save(
+                entry(corruptedJournal, corruptedAccountId, LedgerDirection.DEBIT, "10.00", "EUR")
+        );
+        ledgerEntryRepository.save(entry(corruptedJournal, counterpartAccountId, LedgerDirection.CREDIT, "10.00", "EUR"));
+
+        String response = mockMvc.perform(get("/api/ledger/replay/accounts/{accountId}", corruptedAccountId))
+                .andExpect(status().isConflict())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode json = objectMapper.readTree(response);
+        assertThat(json.get("message").asText())
+                .contains("Ledger corruption detected for account " + corruptedAccountId)
+                .contains("expected USD")
+                .contains(corruptedEntry.getId().toString())
+                .contains("EUR");
+    }
+
+    @Test
     void verification_flagsBrokenJournalsAndPaymentLifecycleMismatches() throws Exception {
         UUID usdAccountId = createAccount("verify-usd", "USD");
         UUID eurAccountId = createAccount("verify-eur", "EUR");
@@ -148,6 +174,38 @@ class LedgerControllerIntegrationTest {
         assertThat(mismatch.get("actualJournalTypes")).isEmpty();
         assertThat(mismatch.get("missingJournalTypes")).extracting(JsonNode::asText).containsExactly("CAPTURE", "RESERVE");
         assertThat(mismatch.get("unexpectedJournalTypes")).isEmpty();
+    }
+
+    @Test
+    void verification_flagsAccountCurrencyCorruption() throws Exception {
+        UUID corruptedAccountId = createAccount("verify-corrupt-usd", "USD");
+        UUID counterpartAccountId = createAccount("verify-corrupt-eur", "EUR");
+
+        JournalTransactionEntity corruptedJournal = paymentJournal(JournalType.PAYMENT, "verification-account-currency-corrupt");
+        corruptedJournal = journalTransactionRepository.save(corruptedJournal);
+        LedgerEntryEntity corruptedEntry = ledgerEntryRepository.save(
+                entry(corruptedJournal, corruptedAccountId, LedgerDirection.DEBIT, "12.00", "EUR")
+        );
+        ledgerEntryRepository.save(entry(corruptedJournal, counterpartAccountId, LedgerDirection.CREDIT, "12.00", "EUR"));
+
+        String response = mockMvc.perform(get("/api/ledger/verification"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode json = objectMapper.readTree(response);
+        JsonNode mismatch = findByField(json.get("accountCurrencyMismatches"), "accountId", corruptedAccountId.toString());
+
+        assertThat(json.get("allChecksPassed").asBoolean()).isFalse();
+        assertThat(json.get("issueCount").asInt()).isEqualTo(1);
+        assertThat(mismatch).isNotNull();
+        assertThat(mismatch.get("ownerId").asText()).isEqualTo("verify-corrupt-usd");
+        assertThat(mismatch.get("expectedCurrency").asText()).isEqualTo("USD");
+        assertThat(mismatch.get("entryCurrencies")).extracting(JsonNode::asText).containsExactly("EUR");
+        assertThat(mismatch.get("mismatchedEntryCount").asInt()).isEqualTo(1);
+        assertThat(mismatch.get("entryIds")).extracting(JsonNode::asText).containsExactly(corruptedEntry.getId().toString());
+        assertThat(mismatch.get("journalIds")).extracting(JsonNode::asText).containsExactly(corruptedJournal.getId().toString());
     }
 
     @Test

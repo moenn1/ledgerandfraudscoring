@@ -15,6 +15,7 @@ public record LedgerVerificationResponse(
         int issueCount,
         List<UnbalancedJournalFinding> unbalancedJournals,
         List<MixedCurrencyJournalFinding> mixedCurrencyJournals,
+        List<AccountCurrencyMismatchFinding> accountCurrencyMismatches,
         List<DuplicatePaymentJournalFinding> duplicatePaymentJournals,
         List<MutationEventReconciliationFinding> mutationEventReconciliationFindings,
         List<PaymentLifecycleMismatchFinding> paymentLifecycleMismatches
@@ -32,6 +33,18 @@ public record LedgerVerificationResponse(
             JournalType type,
             String referenceId,
             List<String> currencies
+    ) {
+    }
+
+    public record AccountCurrencyMismatchFinding(
+            UUID accountId,
+            String ownerId,
+            String expectedCurrency,
+            List<String> entryCurrencies,
+            int mismatchedEntryCount,
+            List<UUID> entryIds,
+            List<UUID> journalIds,
+            String reason
     ) {
     }
 
