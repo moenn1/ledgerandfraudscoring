@@ -17,6 +17,7 @@
 
 - Generate `correlation_id` at ingress if missing.
 - Accept caller-provided correlation IDs only when they use a bounded safe character set; replace malformed values before they reach logs or audit storage.
+- Accept operator-supplied reviewer actor IDs only when they use a bounded safe character set before persisting them in audit metadata.
 - Propagate through API -> fraud -> ledger -> outbox.
 - Include correlation id in audit events and operator timeline payloads.
 

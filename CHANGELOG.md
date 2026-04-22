@@ -14,7 +14,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 
 ### Changed
 - Backend request hardening now disables the H2 console by default, normalizes unsafe correlation IDs before they reach audit storage, and returns generic 5xx payloads instead of raw exception text.
-- Frontend live fraud-review submissions now send an explicit reviewer actor ID so backend validation and audit trails stay aligned during approve/reject actions.
+- Frontend live fraud-review submissions now send an explicit reviewer actor ID, and backend validation constrains those actor IDs to a bounded safe character set before they reach the audit trail.
 - Frontend operator docs now document hybrid API mode, optional bearer-token configuration, and live refresh behavior after manual-review decisions.
 - Repository-facing docs now use product and implementation language only, without internal workflow references.
 - Payment lifecycle docs now reflect the implemented confirm flow reserving funds, manual-review holds, and cancel guards.

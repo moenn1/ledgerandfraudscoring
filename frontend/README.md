@@ -37,6 +37,7 @@ npm run preview
 Set `VITE_API_BASE_URL` to point to your backend (default: `http://localhost:8080`).
 If your backend requires operator authentication, set `VITE_API_BEARER_TOKEN` to a valid bearer token.
 Set `VITE_REVIEW_ACTOR_ID` when live fraud-review decisions should carry a specific operator identity in backend audit events. If unset, the console uses `operator.ui@ledgerforge.local`.
+Reviewer actor IDs should use a stable safe identifier made of letters, numbers, `.`, `_`, `@`, `:`, `/`, or `-` so backend validation accepts them unchanged.
 
 Example:
 
