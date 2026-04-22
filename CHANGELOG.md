@@ -16,6 +16,8 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Ledger replay and verification endpoints for rebuilding account projections from immutable entries and flagging broken journals or payment lifecycle mismatches.
 
 ### Changed
+- Smoke and demo validation scripts now fail fast on payment API drift, assert idempotent lifecycle transitions through refund, and verify ledger health before CI passes.
+- Repository governance docs now describe the docs-ci governance-range regression coverage and the stricter smoke gate expectations.
 - Repository indexes and script docs now describe the CI/CD workflow suite and governance checker entrypoint.
 - GitHub Actions quality gates now cancel superseded branch runs, preserve backend test reports on failure, and publish release bundles with versioned filenames plus SHA-256 manifests.
 - Frontend operator docs now document hybrid API mode, optional bearer-token configuration, and live refresh behavior after manual-review decisions.
@@ -24,6 +26,8 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Ledger invariants documentation now includes the operator recovery flow for `/api/ledger/replay/accounts/{accountId}` and `/api/ledger/verification`.
 
 ### Fixed
+- Governance push validation now checks the actual pushed commit range instead of the aggregate branch diff, and docs CI covers the regression path explicitly.
+- Restored the missing governance range regression script referenced by docs CI so repository documentation and workflow behavior match on `main`.
 - Governance documentation validation now uses Bash 3 compatible iteration so the same check runs on macOS workstations and GitHub-hosted Linux runners.
 - Backend payment integration tests now use transactional rollback so idempotency assertions stay isolated across test methods.
 - Frontend analytics typing now preserves `PaymentStatus` keys through grouped status rollups so the production build passes in CI.

@@ -49,3 +49,47 @@ rand_id() {
     date +%s%N
   fi
 }
+
+json_field() {
+  local field="$1"
+
+  python3 -c '
+import json
+import sys
+
+field = sys.argv[1]
+data = json.loads(sys.stdin.read() or "null")
+value = data
+
+for segment in field.split("."):
+    if not segment:
+        continue
+    if isinstance(value, list) and segment.isdigit():
+        value = value[int(segment)]
+    elif isinstance(value, dict) and segment in value:
+        value = value[segment]
+    else:
+        raise SystemExit(1)
+
+if value is None:
+    print("")
+elif isinstance(value, bool):
+    print("true" if value else "false")
+elif isinstance(value, (dict, list)):
+    print(json.dumps(value, separators=(",", ":")))
+else:
+    print(value)
+' "$field"
+}
+
+json_array_length() {
+  python3 -c '
+import json
+import sys
+
+data = json.loads(sys.stdin.read() or "null")
+if not isinstance(data, list):
+    raise SystemExit(1)
+print(len(data))
+'
+}
