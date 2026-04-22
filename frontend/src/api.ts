@@ -14,6 +14,7 @@ import { mockData } from "./mockData";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
 const API_BEARER_TOKEN = import.meta.env.VITE_API_BEARER_TOKEN;
+export const REVIEW_ACTOR_ID = import.meta.env.VITE_REVIEW_ACTOR_ID ?? "operator.ui@ledgerforge.local";
 const REQUEST_TIMEOUT_MS = 2_000;
 
 interface ApiPayment {
@@ -177,7 +178,8 @@ export async function submitReviewDecision(
   reviewCaseId: string,
   decision: "APPROVE" | "REJECT",
   note: string,
-  correlationId: string
+  correlationId: string,
+  actor: string
 ): Promise<ReviewCase> {
   const response = await fetchJson<ApiReviewCase>(`/api/fraud/reviews/${reviewCaseId}/decision`, {
     method: "POST",
@@ -186,7 +188,8 @@ export async function submitReviewDecision(
     },
     body: JSON.stringify({
       decision,
-      note
+      note,
+      actor
     })
   });
 

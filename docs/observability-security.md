@@ -16,6 +16,7 @@
 ### Trace Propagation
 
 - Generate `correlation_id` at ingress if missing.
+- Accept caller-provided correlation IDs only when they use a bounded safe character set; replace malformed values before they reach logs or audit storage.
 - Propagate through API -> fraud -> ledger -> outbox.
 - Include correlation id in audit events and operator timeline payloads.
 
@@ -49,6 +50,7 @@ Every financial mutation should emit an immutable event:
 - OAuth2/OIDC authentication for all operator APIs
 - RBAC checks on sensitive actions (`capture`, `refund`, `review approve/reject`)
 - Mask account identifiers in UI and logs where possible
+- Keep developer-only surfaces opt-in. Embedded tools such as the H2 console should stay disabled unless explicitly enabled for local debugging.
 - Encrypt sensitive columns at rest if available
 - Sign internal service calls (phase 2 distributed mode)
 
@@ -58,6 +60,7 @@ Every financial mutation should emit an immutable event:
 - Validate request signatures for external callbacks/webhooks
 - Keep audit logs append-only and tamper-evident
 - Never expose raw secrets in logs or API responses
+- Return generic 5xx payloads to callers and keep exception detail in server logs only.
 
 ## Compliance-Inspired Practices
 

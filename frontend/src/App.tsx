@@ -1,6 +1,6 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
 import { deriveAnalytics, type AnalyticsData } from "./analytics";
-import { loadAppData, submitReviewDecision } from "./api";
+import { loadAppData, REVIEW_ACTOR_ID, submitReviewDecision } from "./api";
 import {
   AppData,
   AppLoadResult,
@@ -156,6 +156,7 @@ function App(): JSX.Element {
           ? "Case rejected and payment flagged for decline/follow-up."
           : "Case escalated to risk lead for secondary investigation.";
     const correlationId = `corr-${targetCase.id}-${Date.now().toString(36)}`;
+    const actor = REVIEW_ACTOR_ID;
 
     setProcessingReviewCaseIds((current) => [...current, reviewCaseId]);
 
@@ -168,7 +169,7 @@ function App(): JSX.Element {
         if (action === "ESCALATE") {
           throw new Error("Escalation is only available in mock fallback mode.");
         }
-        const resolvedCase = await submitReviewDecision(reviewCaseId, action, note, correlationId);
+        const resolvedCase = await submitReviewDecision(reviewCaseId, action, note, correlationId, actor);
         afterStatus = resolvedCase.status;
         nextOwner = resolvedCase.assignedTo;
 
@@ -190,7 +191,7 @@ function App(): JSX.Element {
         action,
         beforeStatus: targetCase.status,
         afterStatus,
-        actor: "operator.ui@ledgerforge.local",
+        actor,
         note,
         correlationId,
         idempotencyKey,

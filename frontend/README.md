@@ -36,12 +36,14 @@ npm run preview
 
 Set `VITE_API_BASE_URL` to point to your backend (default: `http://localhost:8080`).
 If your backend requires operator authentication, set `VITE_API_BEARER_TOKEN` to a valid bearer token.
+Set `VITE_REVIEW_ACTOR_ID` when live fraud-review decisions should carry a specific operator identity in backend audit events. If unset, the console uses `operator.ui@ledgerforge.local`.
 
 Example:
 
 ```bash
 VITE_API_BASE_URL=http://localhost:8080 \
 VITE_API_BEARER_TOKEN="<operator-bearer-token>" \
+VITE_REVIEW_ACTOR_ID="reviewer.one@ledgerforge.local" \
 npm run dev
 ```
 
@@ -66,4 +68,5 @@ Behavior by API availability:
 - If payment APIs are available but `metrics` or `reconciliation` endpoints are not, the UI keeps live payments and ledger data and derives those panels client-side.
 - If the review queue API is unavailable, the fraud console stays read-only instead of mixing mock cases with live ledger data.
 - In live API mode, approve/reject review actions re-fetch payment and ledger state after the decision so the console reflects the backend-posted reserve journal and resulting status directly.
+- Live review actions send a correlation ID header and a reviewer actor ID in the request body so the backend audit trail can tie the decision to an operator-facing session.
 - Retry clusters, audit rows, repair recommendations, and the analytics/reporting surface are synthesized from payment, ledger, review, and reconciliation data so operators can still investigate from source-of-truth APIs even when dedicated admin endpoints are sparse.

@@ -6,7 +6,7 @@ import jakarta.validation.constraints.Size;
 
 public record ReviewDecisionRequest(
         @NotNull ReviewDecision decision,
-        @NotBlank String actor,
+        @NotBlank @Size(max = 128) String actor,
         @Size(max = 512) String note
 ) {
     public enum ReviewDecision {
