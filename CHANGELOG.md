@@ -8,6 +8,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - GitHub Actions workflows for governance checks, backend test/package validation, frontend build validation, backend demo smoke coverage, and tagged release artifact publishing.
 - A dedicated documentation CI workflow and validation script that keep workflow coverage, docs indexes, and the changelog entrypoint aligned.
 - A repository governance guide that documents workflow ownership, branch naming policy, and release expectations.
+- A configurable local demo-traffic generator for populating the operator console with realistic payment and review data.
 - Initial repository bootstrap with baseline README, architecture docs, and local developer tooling.
 - Operator console data-source guardrails so live payment and ledger APIs remain the source of truth even when metrics or reconciliation endpoints are missing.
 - Live manual-review decision wiring for approve/reject actions against `/api/fraud/reviews/{id}/decision`, with client-side session audit entries carrying correlation and idempotency metadata.

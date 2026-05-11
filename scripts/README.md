@@ -21,6 +21,7 @@ Optional environment variables:
 
 - `./scripts/wait-for-backend.sh`: waits for `/actuator/health` (fallback `/api/health`)
 - `./scripts/seed-demo.sh`: tries to create demo accounts and one payment
+- `python3 ./scripts/seed-demo-traffic.py --payments 20`: creates realistic local payments, ledger activity, and review cases for the operator console
 - `./scripts/smoke-test.sh`: health + basic payment API checks
 - `./scripts/demo-run.sh`: runs all of the above in order
 - `./scripts/check-governance-docs.sh`: validates changelog and nearest-doc updates for workflow and code changes
