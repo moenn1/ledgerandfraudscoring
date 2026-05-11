@@ -14,6 +14,10 @@ React + TypeScript operator dashboard for the LedgerForge payments platform.
 - Hybrid data mode that prefers live payment/ledger APIs and only derives metrics/reconciliation when admin endpoints are absent
 - Full mock fallback only when the core payment API is unavailable
 
+## Interface style
+
+The operator console uses a restrained light dashboard theme. Panels, tables, navigation tiles, status chips, and action buttons use neutral surfaces with limited color reserved for risk, review, approval, rejection, and anomaly states. This keeps the UI focused on repeated operational review instead of decorative visual effects.
+
 ## Run locally
 
 ```bash

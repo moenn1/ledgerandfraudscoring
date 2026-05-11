@@ -5,7 +5,7 @@ LedgerForge Payments is a local-first fintech demo platform for real-time paymen
 ## Planned MVP
 
 - Spring Boot backend for accounts, payments, ledger, fraud, audit, and reporting
-- React operator dashboard for payment review and reconciliation
+- React operator dashboard for payment review and reconciliation, styled as a restrained operational console
 - PostgreSQL-backed immutable ledger model
 - Idempotent payment APIs with real-time fraud scoring
 - Local developer workflow with Docker Compose

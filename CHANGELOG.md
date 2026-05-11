@@ -19,6 +19,7 @@ All notable changes to LedgerForge Payments should be recorded here.
 - Repository indexes and script docs now describe the CI/CD workflow suite and governance checker entrypoint.
 - GitHub Actions quality gates now cancel superseded branch runs, preserve backend test reports on failure, and publish release bundles with versioned filenames plus SHA-256 manifests.
 - Frontend operator docs now document hybrid API mode, optional bearer-token configuration, and live refresh behavior after manual-review decisions.
+- Operator console styling now uses a calmer light dashboard theme with neutral panels, restrained status colors, and simpler navigation states.
 - Repository-facing docs now use product and implementation language only, without internal workflow references.
 - Payment lifecycle docs now reflect the implemented confirm flow reserving funds, manual-review holds, and cancel guards.
 - Ledger invariants documentation now includes the operator recovery flow for `/api/ledger/replay/accounts/{accountId}` and `/api/ledger/verification`.
